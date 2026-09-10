@@ -134,29 +134,21 @@ def process_pdf_file(path: str | Path, source_role_folder: Optional[str] = None)
 
 
 def discover_pdf_files(input_dir: str | Path) -> list[tuple[str, Optional[str]]]:
-    """Walk INPUT/<role>/**.pdf (role folders are just where the tool looks
-    for files — it still classifies by content, so misplaced files are
-    handled gracefully). Returns (path, role_folder_name) pairs."""
+    """Recursively finds every PDF anywhere under input_dir — role
+    sub-folders (facebook/vat/bank) are just a hint for where to look,
+    not a requirement; content-based classification handles misplaced
+    files regardless. Recursive (not just one level) so PDFs sitting in
+    a folder created by auto-extracting a .zip (see app/zip_utils.py) are
+    still found, no matter how deep. Returns (path, role_folder_name)
+    pairs — role is the first configured role name found anywhere in the
+    file's path, or None if it isn't under one."""
     input_dir = Path(input_dir)
-    settings = get_settings()
-    roles = settings.get("input_roles", ["facebook", "vat", "bank"])
+    if not input_dir.is_dir():
+        return []
+    roles = get_settings().get("input_roles", ["facebook", "vat", "bank"])
 
     found: list[tuple[str, Optional[str]]] = []
-    seen: set[str] = set()
-
-    for role in roles:
-        role_dir = input_dir / role
-        if not role_dir.is_dir():
-            continue
-        for pdf_path in sorted(role_dir.rglob("*.pdf")):
-            found.append((str(pdf_path), role))
-            seen.add(str(pdf_path))
-
-    # also pick up any PDFs dropped directly under input_dir (no role
-    # sub-folder) so the tool never silently ignores a file.
-    if input_dir.is_dir():
-        for pdf_path in sorted(input_dir.glob("*.pdf")):
-            if str(pdf_path) not in seen:
-                found.append((str(pdf_path), None))
-
+    for pdf_path in sorted(input_dir.rglob("*.pdf")):
+        role = next((r for r in roles if r in pdf_path.relative_to(input_dir).parts), None)
+        found.append((str(pdf_path), role))
     return found

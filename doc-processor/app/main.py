@@ -12,12 +12,14 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes_jobs import router as jobs_router
+from app.api.routes_upload import router as upload_router
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 
 app = FastAPI(title="Công cụ xử lý chứng từ kế toán")
 app.include_router(jobs_router)
+app.include_router(upload_router)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 

@@ -130,6 +130,11 @@ class DocumentSet(BaseModel):
     issues: list[str] = Field(default_factory=list)
     output_folder: Optional[str] = None
 
+    # Set only when a reference-list Excel was provided (see
+    # app/reference_list/). None = no list was checked against this set.
+    reference_list_status: Optional[str] = None  # FOUND | AMOUNT_MISMATCH | NOT_FOUND
+    reference_list_note: Optional[str] = None
+
     @property
     def present_docs(self) -> dict[str, ExtractedDocument]:
         out = {}
@@ -145,6 +150,19 @@ class DocumentSet(BaseModel):
 class ErrorFile(BaseModel):
     source_file: str
     reason: str
+
+
+class ReferenceListEntry(BaseModel):
+    """One row from a user-supplied Excel listing the reference numbers
+    (and optionally expected amount/invoice number/notes) that are
+    expected to show up among the processed documents."""
+
+    reference: str
+    expected_amount: Optional[Decimal] = None
+    expected_invoice_number: Optional[str] = None
+    notes: Optional[str] = None
+    source_file: Optional[str] = None
+    row_number: Optional[int] = None
 
 
 class JobSummary(BaseModel):

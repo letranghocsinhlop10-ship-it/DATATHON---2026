@@ -2,6 +2,7 @@
 
 input_dir: "INPUT"
 output_dir: "OUTPUT"
+uploads_dir: "UPLOADS"    # where browser-uploaded files land (see /api/upload), one sub-folder per batch
 log_file: "processing.log"
 
 # sub-folders expected under input_dir; tool still classifies by CONTENT,
@@ -38,11 +39,14 @@ reconciliation:
 categorizer:
   # first matching category (top to bottom) wins the OUTPUT folder placement;
   # every detected issue is still recorded in the Excel report regardless of this order.
+  # `when_issue` accepts either one issue name or a list of names (OR-matched).
   priority:
     - id: "08_OTHER_ERROR"
       when_issue: "ERROR"
     - id: "07_DUPLICATE"
       when_issue: "DUPLICATE"
+    - id: "09_MISSING_ALL_DOCUMENTS"
+      when_issue: "MISSING_ALL_DOCUMENTS"
     - id: "02_MISSING_REFERENCE"
       when_issue: "MISSING_REFERENCE"
     - id: "03_MISSING_TAX_CODE"
@@ -50,7 +54,7 @@ categorizer:
     - id: "04_PAYMENT_METHOD_ERROR"
       when_issue: "PAYMENT_METHOD_ERROR"
     - id: "05_AMOUNT_MISMATCH"
-      when_issue: "AMOUNT_MISMATCH"
+      when_issue: ["AMOUNT_MISMATCH", "REFERENCE_LIST_AMOUNT_MISMATCH"]
     - id: "06_INCOMPLETE_DOCUMENT"
       when_issue: "INCOMPLETE"
     - id: "01_VALID"

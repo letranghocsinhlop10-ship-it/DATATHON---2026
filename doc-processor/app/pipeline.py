@@ -15,10 +15,13 @@ from app.core.logging_config import configure_logging, get_logger
 from app.export.misa_exporter import write_misa_excel
 from app.export.reconciliation_report import write_reconciliation_report
 from app.ingest import discover_pdf_files, process_pdf_file
+from app.zip_utils import extract_zips_in_place
 from app.matching.reference_matcher import match_documents
 from app.models.schema import CompletenessStatus, DocType, DocumentSet, DocumentStatus, ExtractedDocument, JobSummary
 from app.organizing.categorizer import categorize
 from app.organizing.file_organizer import organize_all
+from app.reference_list.loader import discover_reference_list_files, load_all_reference_lists
+from app.reference_list.merge import merge_reference_list
 from app.validation.engine import validate_and_score
 
 log = get_logger("pipeline")
@@ -50,6 +53,10 @@ def run_pipeline(
         if progress_cb:
             progress_cb(done, total, stage)
 
+    n_extracted = extract_zips_in_place(input_dir)
+    if n_extracted:
+        log.info("Đã tự động giải nén %d file .zip trong input", n_extracted)
+
     files = discover_pdf_files(input_dir)
     total = len(files)
     report(0, total, "Đang quét file PDF trong thư mục input...")
@@ -78,6 +85,12 @@ def run_pipeline(
     report(total, total, "Đang ghép bộ theo số tham chiếu...")
 
     document_sets = match_documents(docs)
+
+    ref_list_paths = discover_reference_list_files(input_dir)
+    if ref_list_paths:
+        report(total, total, "Đang đối chiếu với danh sách tham chiếu (Excel)...")
+        entries = load_all_reference_lists(ref_list_paths)
+        document_sets = merge_reference_list(document_sets, entries)
 
     report(total, total, "Đang đối chiếu & kiểm tra hợp lệ...")
     for ds in document_sets:

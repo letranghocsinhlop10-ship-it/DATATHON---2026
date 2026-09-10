@@ -198,6 +198,58 @@ th { color: var(--muted); font-weight: 600; font-size: 12px; }
 
 .hidden { display: none !important; }
 
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 24px 16px;
+  text-align: center;
+  background: #fafbfc;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.drop-zone.dragover {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+
+.drop-zone-text {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-weight: 600;
+  padding: 0;
+  text-decoration: underline;
+  font-size: 13px;
+}
+.link-btn:hover { background: none; color: var(--primary-dark); }
+
+.file-list {
+  margin-top: 12px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text);
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.file-list .file-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-list .file-row .size {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 @media (max-width: 520px) {
   .field { flex: 1 1 100%; }
 }

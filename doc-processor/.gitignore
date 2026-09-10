@@ -1,5 +1,6 @@
 OUTPUT/*
 !OUTPUT/.gitkeep
+UPLOADS/
 .venv/
 __pycache__/
 *.pyc

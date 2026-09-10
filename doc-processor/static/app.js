@@ -2,8 +2,91 @@ let currentJobId = null;
 let pollTimer = null;
 let lastRows = [];
 let showingErrorsOnly = false;
+let selectedFiles = [];
 
 const $ = (id) => document.getElementById(id);
+const ACCEPTED_EXTENSIONS = [".pdf", ".zip", ".xlsx", ".xls"];
+
+function formatBytes(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function hasAcceptedExtension(name) {
+  const lower = name.toLowerCase();
+  return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function renderFileList() {
+  const list = $("fileList");
+  list.innerHTML = "";
+  for (const f of selectedFiles) {
+    const row = document.createElement("div");
+    row.className = "file-row";
+    row.innerHTML = `<span>${f.name}${hasAcceptedExtension(f.name) ? "" : " ⚠ (bỏ qua)"}</span><span class="size">${formatBytes(f.size)}</span>`;
+    list.appendChild(row);
+  }
+  $("uploadBtn").disabled = selectedFiles.length === 0;
+}
+
+function addFiles(fileListLike) {
+  for (const f of fileListLike) {
+    if (!selectedFiles.some((existing) => existing.name === f.name && existing.size === f.size)) {
+      selectedFiles.push(f);
+    }
+  }
+  renderFileList();
+}
+
+async function uploadSelectedFiles() {
+  if (selectedFiles.length === 0) return;
+  $("uploadBtn").disabled = true;
+  $("uploadStatus").textContent = "Đang tải lên...";
+
+  const form = new FormData();
+  for (const f of selectedFiles) form.append("files", f);
+
+  try {
+    const res = await fetch("/api/upload", { method: "POST", body: form });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    $("inputDir").value = data.input_dir;
+    let msg = `Đã tải lên ${data.files_received.length} file.`;
+    if (data.skipped.length) msg += ` Bỏ qua ${data.skipped.length} file không hỗ trợ: ${data.skipped.join(", ")}`;
+    $("uploadStatus").textContent = msg;
+  } catch (e) {
+    $("uploadStatus").textContent = "Lỗi tải file lên: " + e.message;
+  } finally {
+    $("uploadBtn").disabled = selectedFiles.length === 0;
+  }
+}
+
+function setupUploadUi() {
+  const dropZone = $("dropZone");
+  const fileInput = $("fileInput");
+
+  $("browseBtn").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => addFiles(fileInput.files));
+
+  ["dragenter", "dragover"].forEach((evt) =>
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropZone.classList.add("dragover");
+    })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+    })
+  );
+  dropZone.addEventListener("drop", (e) => {
+    if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);
+  });
+
+  $("uploadBtn").addEventListener("click", uploadSelectedFiles);
+}
 
 async function startProcessing() {
   const input_dir = $("inputDir").value.trim() || "INPUT";
@@ -118,3 +201,5 @@ $("exportMisaBtn").addEventListener("click", () => exportFile("misa"));
 $("exportReconBtn").addEventListener("click", () => exportFile("reconciliation"));
 $("viewErrorsBtn").addEventListener("click", () => loadPreview(true));
 $("viewAllBtn").addEventListener("click", () => loadPreview(false));
+
+setupUploadUi();

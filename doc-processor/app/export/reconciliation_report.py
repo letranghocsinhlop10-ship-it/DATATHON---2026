@@ -138,6 +138,18 @@ def write_reconciliation_report(document_sets: list[DocumentSet], path: str | Pa
     ws_misa = wb.create_sheet("MISA Import")
     write_table(ws_misa, misa_headers, misa_rows)
 
+    # Only added when a reference-list Excel was actually provided and
+    # cross-checked (see app/reference_list/) — keeps the report's sheet
+    # set unchanged for the plain PDF-only workflow.
+    checked = [ds for ds in document_sets if ds.reference_list_status is not None]
+    if checked:
+        ws_ref_list = wb.create_sheet("Reference List Check")
+        write_table(
+            ws_ref_list,
+            ["Reference", "Kết quả đối chiếu", "Category", "Ghi chú"],
+            [[ds.reference, ds.reference_list_status, ds.category, ds.reference_list_note or ""] for ds in checked],
+        )
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)

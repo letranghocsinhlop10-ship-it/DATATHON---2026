@@ -54,7 +54,8 @@ def categorize(ds: DocumentSet) -> DocumentSet:
     category = None
     for entry in priority:
         when_issue = entry["when_issue"]
-        if when_issue == "__default_valid__" or when_issue in ds.issues:
+        triggers = when_issue if isinstance(when_issue, list) else [when_issue]
+        if "__default_valid__" in triggers or any(t in ds.issues for t in triggers):
             category = entry["id"]
             break
 

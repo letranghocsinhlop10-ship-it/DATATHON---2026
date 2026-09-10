@@ -12,16 +12,36 @@
     <p class="subtitle">Ghép bộ Facebook Bill / Hóa đơn VAT / Giấy báo nợ ngân hàng theo số tham chiếu, đối chiếu, kiểm tra hợp lệ và xuất Excel cho MISA.</p>
 
     <div class="card">
-      <h2>1. Chọn thư mục &amp; xử lý</h2>
-      <div class="form-row">
-        <div class="field">
-          <label for="inputDir">Input Folder (chứa facebook/, vat/, bank/)</label>
-          <input id="inputDir" type="text" value="INPUT" />
+      <h2>1. Nhập file</h2>
+      <p class="subtitle" style="margin-bottom:12px">
+        Kéo-thả hoặc chọn nhiều file <strong>.pdf</strong>, <strong>.zip</strong> (hóa đơn điện tử PDF+XML nén sẵn) và
+        <strong>.xlsx/.xls</strong> (danh sách số tham chiếu cần đối chiếu — tuỳ chọn) cùng lúc.
+      </p>
+      <div id="dropZone" class="drop-zone">
+        <input id="fileInput" type="file" multiple accept=".pdf,.zip,.xlsx,.xls" hidden />
+        <div class="drop-zone-text">📁 Kéo-thả file vào đây, hoặc <button type="button" class="link-btn" id="browseBtn">chọn file</button></div>
+        <div id="fileList" class="file-list"></div>
+      </div>
+      <div class="form-row" style="margin-top:12px">
+        <button id="uploadBtn" disabled>⬆ Tải file lên</button>
+        <div id="uploadStatus" class="progress-label"></div>
+      </div>
+
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer;font-size:13px;color:var(--muted)">Hoặc nhập đường dẫn thư mục có sẵn trên máy chủ</summary>
+        <div class="form-row" style="margin-top:10px">
+          <div class="field">
+            <label for="inputDir">Input Folder (chứa facebook/, vat/, bank/)</label>
+            <input id="inputDir" type="text" value="INPUT" />
+          </div>
+          <div class="field">
+            <label for="outputDir">Output Folder</label>
+            <input id="outputDir" type="text" value="OUTPUT" />
+          </div>
         </div>
-        <div class="field">
-          <label for="outputDir">Output Folder</label>
-          <input id="outputDir" type="text" value="OUTPUT" />
-        </div>
+      </details>
+
+      <div class="form-row" style="margin-top:14px">
         <button id="processBtn">▶ Process Documents</button>
       </div>
 
