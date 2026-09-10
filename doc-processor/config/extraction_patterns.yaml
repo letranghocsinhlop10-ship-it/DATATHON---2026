@@ -1,0 +1,91 @@
+# Keyword/regex patterns used by the classifier + extractors.
+# This file is the main place to tune accuracy once real PDFs are available
+# — no code changes needed for most adjustments.
+#
+# `labels` entries are plain text label variants (VN/EN) searched
+# case-insensitively; the extractor takes whatever follows on the same
+# line, or the next non-empty line if the label is on its own line.
+# `regex` entries are full python regex applied to the whole raw text,
+# used for values that are identified by their own shape rather than by
+# a nearby label (more robust when a PDF's table layout scrambles the
+# reading order of adjacent label/value cells).
+
+classification:
+  facebook:
+    keywords:
+      - "Meta Platforms"
+      - "Meta quảng cáo"
+      - "ID tài khoản"
+      - "Account ID"
+      - "FBADS"
+      - "facebook.com/ads"
+  vat_invoice:
+    keywords:
+      - "Hóa đơn giá trị gia tăng"
+      - "Ký hiệu (Serial)"
+      - "HÓA ĐƠN GIÁ TRỊ GIA TĂNG"
+      - "Bản thể hiện của hóa đơn điện tử"
+      - "electronic invoice display"
+      - "Mẫu số"
+  bank_debit:
+    keywords:
+      - "PHIẾU GIAO DỊCH GHI NỢ"
+      - "GIẤY BÁO NỢ"
+      - "DEBIT NOTE"
+      - "Mã giao dịch/Transaction code"
+      - "Debit Account"
+
+facebook:
+  labels:
+    reference: ["Số tham chiếu", "Reference Number", "Reference"]
+    invoice_number: ["Hóa đơn #", "Invoice #"]
+    invoice_date: ["Ngày lập hóa đơn/thanh toán", "Invoice/payment date", "Date issued"]
+    payment_method: ["Phương thức thanh toán", "Payment method"]
+    amount_before_vat: ["Tổng phụ", "Subtotal"]
+    total_amount: ["Đã thanh toán", "Amount due", "Total"]
+    description: ["Loại sản phẩm", "Product type"]
+    vat_block: ["VAT", "Thuế GTGT"]
+  regex:
+    vat_rate: '(?:Thuế suất|VAT rate)\s*[:\s]*(\d+)\s*%'
+    tax_ids_in_order: 'Tax ID[:\s]*([\d\-]+)'   # 1st match = seller tax id, 2nd = buyer tax id
+    # non-greedy + tolerant of stray whitespace mid-code (PDF text extraction
+    # sometimes inserts spurious spaces from font kerning); code is
+    # whitespace-stripped by the extractor after matching.
+    reference_embedded: 'FACEBK\s+([A-Za-z0-9\s]{4,20}?)\s*fb\s*me\s*ads'
+  seller_hint: "Meta Platforms"
+
+vat_invoice:
+  labels:
+    reference: ["Số tham chiếu (Reference)", "Reference"]
+    payment_detail: ["Nội dung thanh toán (Payment detail)", "Payment detail", "Diễn giải"]
+    invoice_serial: ["Ký hiệu (Serial)"]
+    invoice_no: ["Số (No.)"]
+    invoice_date: ["Ngày hóa đơn (Date)"]
+    seller: ["Đơn vị bán hàng (Seller)"]
+    seller_tax_code: ["MST (Tax code)"]
+    buyer: ["Tên khách hàng (Customer)"]
+    buyer_tax_code: ["Mã số thuế (Tax code)"]
+    amount_before_vat: ["Cộng tiền hàng (Subtotal)"]
+    vat_amount: ["Tiền thuế GTGT (Value added tax)"]
+    vat_rate: ["Thuế suất (Tax rate)"]
+    total_amount: ["Tổng cộng tiền thanh toán (Total)"]
+  regex:
+    # These two are matched by SHAPE across the whole text rather than by
+    # adjacent label, because this document's PDF table layout can shuffle
+    # label/value reading order (see extraction/vat_invoice_extractor.py).
+    reference_shape: '\bFT\d{8,20}(?:_\d{8})?\b'
+    reference_embedded: 'FACEBK\s+([A-Za-z0-9\s]{4,20}?)\s*fb\s*me\s*ads'
+
+bank_debit:
+  labels:
+    reference: ["Mã giao dịch/Transaction code", "Mã giao dịch", "Transaction code"]
+    transaction_date: ["Ngày/Transaction Date", "Transaction Date"]
+    buyer: ["Tên Khách hàng/Customer Name", "Customer Name"]
+    bank_name: ["Tên Ngân hàng/Bank's Name", "Bank's Name"]
+    account_no: ["Số tài khoản/Account No", "Account No"]
+    currency: ["Loại tiền/Currency", "Currency"]
+    total_amount: ["Số tiền/Amount", "Amount"]
+    description: ["Diễn giải/Details", "Details"]
+  regex:
+    reference_embedded: 'FACEBK\s+([A-Za-z0-9\s]{4,20}?)\s*fb\s*me\s*ads'
+    masked_card: '(\d{4}[xX\*]{2,6}\d{2,4})'

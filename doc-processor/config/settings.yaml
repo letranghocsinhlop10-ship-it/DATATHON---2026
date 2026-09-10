@@ -1,0 +1,63 @@
+# General pipeline settings. Safe to tweak without touching code.
+
+input_dir: "INPUT"
+output_dir: "OUTPUT"
+log_file: "processing.log"
+
+# sub-folders expected under input_dir; tool still classifies by CONTENT,
+# these are just where it looks for PDFs (user does not need to sort them).
+input_roles:
+  - facebook
+  - vat
+  - bank
+
+ocr:
+  enabled: true
+  languages: "vie+eng"      # tesseract language codes
+  min_chars_for_text_layer: 20   # below this -> treat page as "no text layer" -> try OCR
+  dpi: 300
+
+matching:
+  fuzzy_threshold: 85          # rapidfuzz partial_ratio 0-100, used only when substring match fails
+  normalize_case: true
+
+reconciliation:
+  amount_tolerance_percent: 1.0     # allow FX-rounding differences between docs
+  date_tolerance_days: 5            # invoice date vs bank transaction date can legitimately differ
+  # Which of the 3 roles actually carry each field in practice — comparing
+  # a field against a doc type that structurally never has it (e.g. tax
+  # code on a bank debit note) would produce meaningless MISMATCH noise.
+  applicable_roles:
+    reference: ["facebook", "vat_invoice", "bank_debit"]
+    amount: ["facebook", "vat_invoice", "bank_debit"]
+    date: ["facebook", "vat_invoice", "bank_debit"]
+    tax_code: ["facebook", "vat_invoice"]
+    payment_method: ["facebook", "bank_debit"]
+    invoice_info: ["facebook", "vat_invoice"]
+
+categorizer:
+  # first matching category (top to bottom) wins the OUTPUT folder placement;
+  # every detected issue is still recorded in the Excel report regardless of this order.
+  priority:
+    - id: "08_OTHER_ERROR"
+      when_issue: "ERROR"
+    - id: "07_DUPLICATE"
+      when_issue: "DUPLICATE"
+    - id: "02_MISSING_REFERENCE"
+      when_issue: "MISSING_REFERENCE"
+    - id: "03_MISSING_TAX_CODE"
+      when_issue: "MISSING_TAX_CODE"
+    - id: "04_PAYMENT_METHOD_ERROR"
+      when_issue: "PAYMENT_METHOD_ERROR"
+    - id: "05_AMOUNT_MISMATCH"
+      when_issue: "AMOUNT_MISMATCH"
+    - id: "06_INCOMPLETE_DOCUMENT"
+      when_issue: "INCOMPLETE"
+    - id: "01_VALID"
+      when_issue: "__default_valid__"
+
+safe_mode:
+  # if true, stale OUTPUT folders from a previous run (a set moved to a
+  # different category on re-run) are only marked `.stale` + logged,
+  # never deleted automatically.
+  require_confirmation_to_delete_stale: true

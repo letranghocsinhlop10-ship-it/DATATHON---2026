@@ -1,0 +1,8 @@
+OUTPUT/*
+!OUTPUT/.gitkeep
+.venv/
+__pycache__/
+*.pyc
+processing.log
+.pytest_cache/
+

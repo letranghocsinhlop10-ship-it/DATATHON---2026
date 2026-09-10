@@ -1,0 +1,98 @@
+# Validation rule engine config. Each rule -> PASS / FAIL / WARNING /
+# NOT_FOUND (see app/validation/engine.py):
+#   - NOT_FOUND: none of the relevant document types are even present in
+#     the set, so the field can't be checked at all (structural gap).
+#   - FAIL / WARNING: the relevant document(s) ARE present but the field
+#     is empty/invalid — severity below decides which of the two.
+#   - PASS: field present (and valid, for format-style rules).
+#
+# Most new criteria (spec section 4's "mở rộng thêm") can be added here
+# as another `generic_presence` rule referencing an existing field name
+# on ExtractedDocument — no code change needed. `special` rules need a
+# matching resolver function in app/validation/engine.py.
+
+rules:
+  - id: "REFERENCE_PRESENT"
+    type: "special"
+    resolver: "reference_present"
+    severity: "FAIL"
+    description: "Số tham chiếu phải được nhận diện trên bộ chứng từ"
+
+  - id: "TAX_CODE_PRESENT"
+    type: "generic_presence"
+    attr: "tax_code"
+    roles: ["facebook", "vat_invoice"]
+    severity: "FAIL"
+    description: "Phải trích xuất được mã số thuế người mua"
+
+  - id: "TAX_CODE_FORMAT"
+    type: "special"
+    resolver: "tax_code_format"
+    severity: "WARNING"
+    description: "Mã số thuế nên đúng định dạng chuẩn VN (10 số, hoặc 10 số-3 số)"
+
+  - id: "PAYMENT_METHOD_PRESENT"
+    type: "generic_presence"
+    attr: "payment_method"
+    roles: ["facebook", "bank_debit"]
+    severity: "FAIL"
+    description: "Phải xác định được phương thức thanh toán"
+
+  - id: "AMOUNT_PRESENT"
+    type: "generic_presence"
+    attr: "total_amount"
+    roles: ["facebook", "vat_invoice", "bank_debit"]
+    severity: "FAIL"
+    description: "Phải trích xuất được số tiền thanh toán"
+
+  - id: "INVOICE_NUMBER_PRESENT"
+    type: "generic_presence"
+    attr: "invoice_number"
+    roles: ["facebook", "vat_invoice"]
+    severity: "WARNING"
+    description: "Nên có số hóa đơn"
+
+  - id: "INVOICE_DATE_PRESENT"
+    type: "generic_presence"
+    attr: "invoice_date"
+    roles: ["facebook", "vat_invoice"]
+    severity: "WARNING"
+    description: "Nên có ngày hóa đơn"
+
+  - id: "BUYER_NAME_PRESENT"
+    type: "generic_presence"
+    attr: "buyer"
+    roles: ["facebook", "vat_invoice", "bank_debit"]
+    severity: "WARNING"
+    description: "Nên xác định được tên đơn vị mua hàng"
+
+  - id: "VAT_AMOUNT_PRESENT"
+    type: "generic_presence"
+    attr: "vat_amount"
+    roles: ["facebook", "vat_invoice"]
+    severity: "WARNING"
+    description: "Nên có số tiền thuế GTGT"
+
+  - id: "DESCRIPTION_PRESENT"
+    type: "generic_presence"
+    attr: "description"
+    roles: ["facebook", "vat_invoice", "bank_debit"]
+    severity: "WARNING"
+    description: "Nên có nội dung giao dịch/diễn giải"
+
+  - id: "SET_COMPLETE"
+    type: "special"
+    resolver: "set_complete"
+    severity: "FAIL"
+    description: "Bộ chứng từ phải có đủ 3 loại: Facebook / Hóa đơn VAT / Giấy báo nợ ngân hàng"
+
+  - id: "NO_RECONCILIATION_MISMATCH"
+    type: "special"
+    resolver: "no_reconciliation_mismatch"
+    severity: "FAIL"
+    description: "Không có tiêu chí đối chiếu nào bị MISMATCH giữa các chứng từ"
+
+# How individual rule results roll up into the overall DOCUMENT STATUS.
+status_rollup:
+  invalid_if_any_fail: true
+  needs_review_if_any_warning: true

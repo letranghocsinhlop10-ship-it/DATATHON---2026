@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Xử lý chứng từ kế toán</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>🧾 Công cụ xử lý chứng từ kế toán</h1>
+    <p class="subtitle">Ghép bộ Facebook Bill / Hóa đơn VAT / Giấy báo nợ ngân hàng theo số tham chiếu, đối chiếu, kiểm tra hợp lệ và xuất Excel cho MISA.</p>
+
+    <div class="card">
+      <h2>1. Chọn thư mục &amp; xử lý</h2>
+      <div class="form-row">
+        <div class="field">
+          <label for="inputDir">Input Folder (chứa facebook/, vat/, bank/)</label>
+          <input id="inputDir" type="text" value="INPUT" />
+        </div>
+        <div class="field">
+          <label for="outputDir">Output Folder</label>
+          <input id="outputDir" type="text" value="OUTPUT" />
+        </div>
+        <button id="processBtn">▶ Process Documents</button>
+      </div>
+
+      <div class="progress-wrap">
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+        <div class="progress-label" id="progressLabel">Chưa xử lý</div>
+      </div>
+      <div id="statusLine"></div>
+    </div>
+
+    <div class="card" id="summaryCard" hidden>
+      <h2>2. Kết quả tổng hợp</h2>
+      <div class="summary-grid">
+        <div class="stat"><div class="num" id="statTotal">0</div><div class="label">Total files</div></div>
+        <div class="stat"><div class="num" id="statComplete">0</div><div class="label">Complete sets</div></div>
+        <div class="stat"><div class="num" id="statIncomplete">0</div><div class="label">Incomplete</div></div>
+        <div class="stat"><div class="num" id="statValid">0</div><div class="label">Valid</div></div>
+        <div class="stat"><div class="num" id="statErrors">0</div><div class="label">Errors</div></div>
+        <div class="stat"><div class="num" id="statDuplicates">0</div><div class="label">Duplicates</div></div>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="openFolderBtn">📂 Open Output Folder</button>
+        <button class="secondary" id="exportMisaBtn">⬇ Export MISA Excel</button>
+        <button class="secondary" id="exportReconBtn">⬇ Export Reconciliation Report</button>
+        <button class="secondary" id="viewErrorsBtn">⚠ View Errors</button>
+        <button class="secondary" id="viewAllBtn" hidden>📋 View All</button>
+      </div>
+      <div id="pathHint"></div>
+    </div>
+
+    <div class="card" id="previewCard" hidden>
+      <h2>3. Preview</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Reference</th><th>Status</th><th>Issue</th><th>Amount</th><th>Folder</th>
+            </tr>
+          </thead>
+          <tbody id="previewBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

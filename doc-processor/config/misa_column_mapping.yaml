@@ -1,0 +1,43 @@
+# Column layout for the MISA import spreadsheet. This is a PLACEHOLDER —
+# we do not have MISA's real import template yet. `field` must be one of
+# the resolver keys in app/export/misa_exporter.py (RESOLVERS); `header`
+# is exactly what MISA needs it to be — safe to rename/reorder/remove
+# columns here once the real template is available, with NO code change.
+#
+# `source_priority` (optional) overrides, for that one column, which doc
+# role to read the field from first when more than one document could
+# supply it (defaults live in code — see _DEFAULT_PRIORITY).
+
+columns:
+  - field: "reference"
+    header: "Reference"
+  - field: "invoice_number"
+    header: "Invoice Number"
+  - field: "invoice_date"
+    header: "Invoice Date"
+  - field: "seller"
+    header: "Seller"
+  - field: "tax_code"
+    header: "Tax Code"
+  - field: "description"
+    header: "Description"
+  - field: "amount_before_vat"
+    header: "Amount Before VAT"
+  - field: "vat_amount"
+    header: "VAT"
+  - field: "total_amount"
+    header: "Total Amount"
+  - field: "currency"
+    header: "Currency"
+  - field: "payment_method"
+    header: "Payment Method"
+  - field: "bank_transaction_date"
+    header: "Bank Transaction Date"
+  - field: "document_status"
+    header: "Document Status"
+  - field: "check_result"
+    header: "Check Result"
+  - field: "issue"
+    header: "Issue"
+  - field: "source_folder"
+    header: "Source Folder"
