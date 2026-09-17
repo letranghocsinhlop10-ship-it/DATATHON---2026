@@ -123,6 +123,10 @@ class ScanService:
         paths = list(iter_pdf_files(folder))
         total = len(paths)
         duplicate_detector = DuplicateDetector()
+        # file_hash -> document_id của từng segment của file GỐC (segment_index
+        # -> document_id) — dùng để trỏ duplicate_of_id đúng segment tương ứng
+        # khi gặp file trùng byte-for-byte có cùng cách tách nhiều chứng từ.
+        original_documents_by_hash: dict[str, dict[int, int]] = {}
         documents: list[Document] = []
         error_files = 0
 
@@ -134,7 +138,9 @@ class ScanService:
                 break
 
             try:
-                segment_docs = self._process_file(path, duplicate_detector, run_id)
+                segment_docs = self._process_file(
+                    path, duplicate_detector, run_id, original_documents_by_hash
+                )
                 documents.extend(segment_docs)
             except PDFReadError as exc:
                 error_files += 1
@@ -170,10 +176,15 @@ class ScanService:
     # -------------------------------------------------------------- nội bộ
 
     def _process_file(
-        self, path: Path, duplicate_detector: DuplicateDetector, run_id: int | None
+        self,
+        path: Path,
+        duplicate_detector: DuplicateDetector,
+        run_id: int | None,
+        original_documents_by_hash: dict[str, dict[int, int]],
     ) -> list[Document]:
         file_hash = compute_sha256(path)
         original = duplicate_detector.register(path, file_hash)
+        original_segment_ids = original_documents_by_hash.get(file_hash, {})
 
         content = self._reader.read(path)
         segments = self._splitter.split(content)
@@ -199,8 +210,17 @@ class ScanService:
             elif document_type is DocumentType.UNKNOWN:
                 status = ProcessingStatus.UNKNOWN_TYPE
 
+            duplicate_of_id = None
             if original is not None:
                 status = ProcessingStatus.DUPLICATE_FILE
+                duplicate_of_id = original_segment_ids.get(segment.index)
+                if duplicate_of_id is None:
+                    logger.warning(
+                        "%s: file trùng %s nhưng không khớp được segment %d của bản gốc",
+                        path.name,
+                        original.name,
+                        segment.index,
+                    )
 
             document = Document(
                 file_name=path.name,
@@ -218,9 +238,17 @@ class ScanService:
                 raw_text=sub_content.text,
                 fields=fields,
                 processing_status=status,
+                duplicate_of_id=duplicate_of_id,
                 created_at=datetime.now(),
             )
             self._documents.save(document, run_id=run_id)
             results.append(document)
+
+        if original is None:
+            # Đây là lần đầu gặp hash này — ghi lại làm "bản gốc" để các file
+            # trùng byte-for-byte xuất hiện sau trỏ duplicate_of_id vào đây.
+            original_documents_by_hash[file_hash] = {
+                doc.segment_index: doc.document_id for doc in results
+            }
 
         return results

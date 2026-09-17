@@ -97,3 +97,87 @@ class TestBaoLoiCauHinhSai:
         config = load_extraction_config(path)
         with pytest.raises(ConfigError, match="money_format"):
             config.money_format_for(DocumentType.META_INVOICE)
+
+
+class TestAccountingConfig:
+    def test_nap_dung_tai_khoan_that(self):
+        from app.config_loader import load_accounting_config
+
+        config = load_accounting_config()
+        assert config.account("marketing_expense") == "6417"
+        assert config.account("supplier_payable") == "331"
+
+    def test_tai_khoan_khong_ton_tai_bao_loi_ro_rang(self):
+        from app.config_loader import load_accounting_config
+
+        config = load_accounting_config()
+        with pytest.raises(ConfigError, match="marketing_expense_khong_ton_tai"):
+            config.account("marketing_expense_khong_ton_tai")
+
+    def test_nha_cung_cap_meta_co_ma_so_thue(self):
+        from app.config_loader import load_accounting_config
+
+        config = load_accounting_config()
+        assert config.supplier("meta").object_code == "9000000327"
+
+    def test_thieu_accounts_bao_loi(self, tmp_path: Path):
+        from app.config_loader import load_accounting_config
+
+        path = tmp_path / "acc.yaml"
+        path.write_text("company:\n  name: X\n", encoding="utf-8")
+        with pytest.raises(ConfigError, match="accounts"):
+            load_accounting_config(path)
+
+    def test_khong_khau_tru_thue_meta_theo_xac_nhan_q7(self):
+        from app.config_loader import load_accounting_config
+
+        config = load_accounting_config()
+        assert config.policy.deduct_meta_input_vat is False
+
+
+class TestMisaMappingConfig:
+    def test_nap_dung_34_cot(self):
+        from app.config_loader import load_accounting_config, load_misa_mapping_config
+
+        misa = load_misa_mapping_config(load_accounting_config())
+        assert len(misa.columns) == 34
+
+    def test_placeholder_accounts_da_duoc_resolve(self):
+        from app.config_loader import load_accounting_config, load_misa_mapping_config
+
+        misa = load_misa_mapping_config(load_accounting_config())
+        expense_line = next(l for l in misa.lines if l.rule_id == "meta_ad_expense")
+        assert expense_line.debit_account == "6417"
+        assert "${" not in expense_line.debit_account
+
+    def test_placeholder_dossier_chua_resolve_luc_nap(self):
+        """${meta.xxx} chỉ resolve lúc xuất Excel theo từng dossier, không
+        phải lúc nạp config."""
+        from app.config_loader import load_accounting_config, load_misa_mapping_config
+
+        misa = load_misa_mapping_config(load_accounting_config())
+        expense_line = next(l for l in misa.lines if l.rule_id == "meta_ad_expense")
+        assert "${meta.invoice_number}" in expense_line.description_template
+
+    def test_so_chung_tu_dinh_dang_dung(self):
+        from app.config_loader import load_accounting_config, load_misa_mapping_config
+
+        misa = load_misa_mapping_config(load_accounting_config())
+        assert misa.voucher_number.format(52601) == "NVK052601"
+
+    def test_placeholder_khong_giai_quyet_duoc_bao_loi(self, tmp_path: Path):
+        from app.config_loader import load_accounting_config, load_misa_mapping_config
+
+        acc = load_accounting_config()
+        path = tmp_path / "misa.yaml"
+        path.write_text(
+            "lines:\n"
+            "  - id: x\n"
+            "    debit_account: '${accounts.khong_ton_tai}'\n"
+            "    credit_account: '331'\n"
+            "    amount: 'meta.subtotal'\n"
+            "columns: []\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigError, match="placeholder"):
+            load_misa_mapping_config(acc, path)

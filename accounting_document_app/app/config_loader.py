@@ -26,9 +26,18 @@ __all__ = [
     "FieldRule",
     "ExtractionConfig",
     "AppSettings",
+    "SupplierConfig",
+    "AccountingPolicy",
+    "AccountingConfig",
+    "MisaVoucherNumberConfig",
+    "MisaLineRule",
+    "MisaColumn",
+    "MisaMappingConfig",
     "load_classifier_config",
     "load_extraction_config",
     "load_app_settings",
+    "load_accounting_config",
+    "load_misa_mapping_config",
     "DEFAULT_CONFIG_DIR",
 ]
 
@@ -404,4 +413,293 @@ def load_app_settings(path: Path | None = None) -> AppSettings:
         amount_chain_tolerance=int(validation.get("amount_chain_tolerance", 0)),
         log_level=str(logging_cfg.get("level", "INFO")),
         raw=data,
+    )
+
+
+# ------------------------------------------------------------- accounting.yaml
+
+
+@dataclass(frozen=True)
+class SupplierConfig:
+    """Một nhà cung cấp khai báo trong ``accounting.yaml`` — dùng làm
+    "Đối tượng Có" khi xuất MISA (Q22: đối tượng là MÃ SỐ THUẾ)."""
+
+    object_code: str
+    name: str
+
+
+@dataclass(frozen=True)
+class AccountingPolicy:
+    """Chính sách kế toán — app chỉ LÀM THEO, không tự quyết định (§23)."""
+
+    withhold_foreign_contractor_tax: bool
+    deduct_meta_input_vat: bool
+    book_bank_fee: bool
+    deduct_bank_fee_input_vat: bool
+    export_payment_entry: bool
+    recompute_vat_from_rate: bool
+
+
+@dataclass(frozen=True)
+class AccountingConfig:
+    """Toàn bộ ``config/accounting.yaml`` đã kiểm tra.
+
+    Attributes:
+        company_name: Tên công ty, hiển thị trên chứng từ MISA.
+        company_tax_code: MST công ty đã chuẩn hoá (chỉ chữ số), dùng đối
+            chiếu ``TAX_CODE_MISMATCH``. ``None`` nếu chưa cấu hình.
+        accounts: Ánh xạ tên tài khoản -> mã tài khoản, ví dụ
+            ``{"marketing_expense": "6417"}``.
+        suppliers: Ánh xạ tên nhà cung cấp -> ``SupplierConfig``.
+        policy: Cờ chính sách kế toán.
+    """
+
+    company_name: str
+    company_tax_code: str | None
+    accounts: dict[str, str]
+    suppliers: dict[str, SupplierConfig]
+    policy: AccountingPolicy
+
+    def account(self, name: str) -> str:
+        """Lấy mã tài khoản theo tên, báo lỗi rõ ràng nếu thiếu."""
+        try:
+            return self.accounts[name]
+        except KeyError as exc:
+            raise ConfigError(
+                f"accounting.yaml thiếu tài khoản '{name}' trong mục accounts"
+            ) from exc
+
+    def supplier(self, name: str) -> SupplierConfig:
+        try:
+            return self.suppliers[name]
+        except KeyError as exc:
+            raise ConfigError(
+                f"accounting.yaml thiếu nhà cung cấp '{name}' trong mục suppliers"
+            ) from exc
+
+
+def load_accounting_config(path: Path | None = None) -> AccountingConfig:
+    """Nạp ``config/accounting.yaml``.
+
+    Args:
+        path: Đường dẫn file; mặc định ``config/accounting.yaml``.
+
+    Returns:
+        ``AccountingConfig`` đã kiểm tra.
+
+    Raises:
+        ConfigError: Thiếu mục bắt buộc.
+    """
+    from app.core.text_normalizer import normalize_tax_code
+
+    path = path or DEFAULT_CONFIG_DIR / "accounting.yaml"
+    data = _read_yaml(path)
+
+    company = data.get("company") or {}
+    accounts_raw = data.get("accounts") or {}
+    if not accounts_raw:
+        raise ConfigError(f"{path} thiếu mục 'accounts'")
+    accounts = {str(k): str(v) for k, v in accounts_raw.items()}
+
+    suppliers_raw = data.get("suppliers") or {}
+    suppliers: dict[str, SupplierConfig] = {}
+    for name, cfg in suppliers_raw.items():
+        if "object_code" not in cfg:
+            raise ConfigError(f"suppliers.{name} thiếu 'object_code'")
+        suppliers[name] = SupplierConfig(
+            object_code=str(cfg["object_code"]), name=str(cfg.get("name", name))
+        )
+
+    policy_raw = data.get("policy") or {}
+    policy = AccountingPolicy(
+        withhold_foreign_contractor_tax=bool(policy_raw.get("withhold_foreign_contractor_tax", False)),
+        deduct_meta_input_vat=bool(policy_raw.get("deduct_meta_input_vat", False)),
+        book_bank_fee=bool(policy_raw.get("book_bank_fee", False)),
+        deduct_bank_fee_input_vat=bool(policy_raw.get("deduct_bank_fee_input_vat", False)),
+        export_payment_entry=bool(policy_raw.get("export_payment_entry", False)),
+        recompute_vat_from_rate=bool(policy_raw.get("recompute_vat_from_rate", False)),
+    )
+
+    raw_tax_code = company.get("tax_code") or None
+    return AccountingConfig(
+        company_name=str(company.get("name", "")),
+        company_tax_code=normalize_tax_code(raw_tax_code) if raw_tax_code else None,
+        accounts=accounts,
+        suppliers=suppliers,
+        policy=policy,
+    )
+
+
+# ------------------------------------------------------------ misa_mapping.yaml
+
+#: Khớp ``${accounts.xxx}`` hoặc ``${parameters.xxx}`` — chỉ giải quyết ở
+#: LÚC NẠP CONFIG. Không khớp ``${meta.xxx}``/``${bank_vat.xxx}``/``${debit.xxx}``
+#: vì hai namespace đó chỉ có giá trị THẬT tại lúc xuất Excel (theo từng dossier).
+_STATIC_PLACEHOLDER_RE = re.compile(r"\$\{(accounts|parameters)\.([A-Za-z0-9_]+)\}")
+
+
+def _resolve_static_placeholders(text: str, accounts: dict[str, str], parameters: dict[str, str]) -> str:
+    """Thay ``${accounts.X}``/``${parameters.X}`` bằng giá trị thật lúc nạp config."""
+
+    namespaces = {"accounts": accounts, "parameters": parameters}
+
+    def _sub(match: re.Match[str]) -> str:
+        ns, key = match.group(1), match.group(2)
+        try:
+            return str(namespaces[ns][key])
+        except KeyError as exc:
+            raise ConfigError(f"Không giải quyết được placeholder ${{{ns}.{key}}}") from exc
+
+    return _STATIC_PLACEHOLDER_RE.sub(_sub, text)
+
+
+@dataclass(frozen=True)
+class MisaVoucherNumberConfig:
+    """Quy tắc đánh Số chứng từ MISA — xem Q21: số bắt đầu do người dùng nhập."""
+
+    prefix: str
+    digits: int
+    start: int | None
+    increment: int
+
+    def format(self, sequence: int) -> str:
+        return f"{self.prefix}{sequence:0{self.digits}d}"
+
+
+@dataclass(frozen=True)
+class MisaLineRule:
+    """Một dòng bút toán MISA sinh ra từ một dossier ``VALID``.
+
+    Attributes:
+        rule_id: Định danh, ví dụ ``meta_ad_expense``.
+        enabled: Dòng có được sinh ra không — tắt khi chưa xác nhận nghiệp vụ.
+        condition: Biểu thức Python hạn chế, chỉ được tham chiếu ``meta``,
+            ``debit``, ``bank_vat`` (thuộc tính = tên trường, ví dụ
+            ``meta.subtotal is not None``). Không có tên nào khác lọt vào
+            namespace khi eval — xem ``MisaExporter._evaluate``.
+        debit_account / credit_account: Mã tài khoản, ĐÃ resolve từ
+            ``${accounts.*}``/``${parameters.*}`` lúc nạp config.
+        amount_expr: Biểu thức lấy số tiền, dạng ``"<role>.<field>"``.
+        credit_object: Mã đối tượng Có, đã resolve tĩnh (có thể ``None``).
+        description_template: Mẫu diễn giải — phần ``${accounts.*}``/
+            ``${parameters.*}`` đã resolve, còn lại ``${meta.xxx}`` /
+            ``${bank_vat.xxx}`` chờ resolve theo từng dossier lúc xuất.
+    """
+
+    rule_id: str
+    enabled: bool
+    condition: str
+    debit_account: str
+    credit_account: str
+    amount_expr: str
+    credit_object: str | None
+    description_template: str
+
+
+@dataclass(frozen=True)
+class MisaColumn:
+    """Một trong 34 cột của file import MISA — thứ tự PHẢI giữ nguyên."""
+
+    header: str
+    source: str | None
+    number_format: str | None = None
+
+
+@dataclass(frozen=True)
+class MisaMappingConfig:
+    """Toàn bộ ``config/misa_mapping.yaml`` đã kiểm tra và resolve tĩnh."""
+
+    sheet_name: str
+    header_row: int
+    cost_center_label: str
+    voucher_number: MisaVoucherNumberConfig
+    supplier_object_code: str
+    lines: tuple[MisaLineRule, ...]
+    columns: tuple[MisaColumn, ...]
+
+
+def load_misa_mapping_config(
+    accounting: AccountingConfig, path: Path | None = None
+) -> MisaMappingConfig:
+    """Nạp ``config/misa_mapping.yaml``, resolve placeholder tĩnh.
+
+    Args:
+        accounting: Cấu hình kế toán đã nạp — cung cấp namespace ``accounts``
+            cho placeholder ``${accounts.*}``.
+        path: Đường dẫn file; mặc định ``config/misa_mapping.yaml``.
+
+    Returns:
+        ``MisaMappingConfig`` — mọi ``${accounts.*}``/``${parameters.*}`` đã
+        thay bằng giá trị thật; ``${meta.*}``/``${bank_vat.*}``/``${debit.*}``
+        vẫn còn nguyên, chờ resolve theo từng dossier lúc xuất Excel.
+
+    Raises:
+        ConfigError: Thiếu mục bắt buộc hoặc placeholder không giải quyết được.
+    """
+    path = path or DEFAULT_CONFIG_DIR / "misa_mapping.yaml"
+    data = _read_yaml(path)
+
+    params_raw = data.get("parameters") or {}
+    parameters = {
+        k: v for k, v in params_raw.items() if not isinstance(v, dict)
+    }
+
+    voucher_raw = params_raw.get("voucher_number") or {}
+    voucher_number = MisaVoucherNumberConfig(
+        prefix=str(voucher_raw.get("prefix", "")),
+        digits=int(voucher_raw.get("digits", 6)),
+        start=int(voucher_raw["start"]) if voucher_raw.get("start") is not None else None,
+        increment=int(voucher_raw.get("increment", 1)),
+    )
+
+    def resolve(text: str | None) -> str | None:
+        if text is None:
+            return None
+        return _resolve_static_placeholders(str(text), accounting.accounts, parameters)
+
+    lines: list[MisaLineRule] = []
+    for raw in data.get("lines") or ():
+        rule_id = str(raw.get("id") or "")
+        if not rule_id:
+            raise ConfigError(f"{path}: có dòng MISA thiếu 'id'")
+        lines.append(
+            MisaLineRule(
+                rule_id=rule_id,
+                enabled=bool(raw.get("enabled", True)),
+                condition=str(raw.get("condition", "True")),
+                debit_account=resolve(raw.get("debit_account")) or "",
+                credit_account=resolve(raw.get("credit_account")) or "",
+                amount_expr=str(raw.get("amount") or ""),
+                credit_object=resolve(raw.get("credit_object")),
+                description_template=resolve(raw.get("description")) or "",
+            )
+        )
+        if not lines[-1].amount_expr:
+            raise ConfigError(f"Dòng MISA {rule_id} thiếu 'amount'")
+
+    columns: list[MisaColumn] = []
+    for raw in data.get("columns") or ():
+        header = str(raw.get("header") or "")
+        if not header:
+            raise ConfigError(f"{path}: có cột thiếu 'header'")
+        columns.append(
+            MisaColumn(
+                header=header,
+                source=raw.get("source"),
+                number_format=raw.get("format"),
+            )
+        )
+    if len(columns) != 34:
+        logger.warning(
+            "misa_mapping.yaml có %d cột, khác 34 cột của mẫu MISA SME 2023 thật", len(columns)
+        )
+
+    return MisaMappingConfig(
+        sheet_name=str(data.get("sheet_name") or "Chứng từ nghiệp vụ khác"),
+        header_row=int(data.get("header_row", 1)),
+        cost_center_label=str(parameters.get("cost_center_label", "")),
+        voucher_number=voucher_number,
+        supplier_object_code=str(parameters.get("supplier_object_code", "")),
+        lines=tuple(lines),
+        columns=tuple(columns),
     )

@@ -18,9 +18,11 @@ for extra in (ROOT, ROOT / "tests", ROOT / "tests" / "fixtures"):
         sys.path.insert(0, str(extra))
 
 from app.config_loader import (  # noqa: E402
+    load_accounting_config,
     load_app_settings,
     load_classifier_config,
     load_extraction_config,
+    load_misa_mapping_config,
 )
 from app.extractors.registry import ExtractorRegistry  # noqa: E402
 
@@ -43,3 +45,13 @@ def app_settings():
 @pytest.fixture(scope="session")
 def registry(extraction_config):
     return ExtractorRegistry(extraction_config)
+
+
+@pytest.fixture(scope="session")
+def accounting_config():
+    return load_accounting_config()
+
+
+@pytest.fixture(scope="session")
+def misa_config(accounting_config):
+    return load_misa_mapping_config(accounting_config)

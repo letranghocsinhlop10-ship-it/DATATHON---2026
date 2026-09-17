@@ -12,6 +12,7 @@ Cửa sổ này chỉ điều phối UI — KHÔNG chứa logic nghiệp vụ. T
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -34,16 +36,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config_loader import AppSettings, ClassifierConfig, ExtractionConfig
+from app.config_loader import AccountingConfig, AppSettings, ClassifierConfig, ExtractionConfig, MisaMappingConfig
 from app.database.database import Database
 from app.database.document_repository import DocumentRepository
 from app.database.dossier_repository import DossierRepository
 from app.database.processing_run_repository import ProcessingRunRepository
 from app.models.dossier import Dossier
+from app.services.export_service import ExportService
 from app.services.match_service import MatchService
+from app.services.organize_service import OrganizeService
 from app.services.scan_service import ScanProgress, ScanResult, ScanService
 from app.ui.view_models import dossier_to_row, status_color
-from app.ui.workers import MatchWorker, ScanWorker
+from app.ui.workers import ExportWorker, MatchWorker, OrganizeWorker, ScanWorker
 
 __all__ = ["MainWindow"]
 
@@ -60,6 +64,8 @@ class MainWindow(QMainWindow):
         classifier_config: Luật phân loại.
         extraction_config: Luật trích xuất.
         app_settings: Cấu hình vận hành.
+        accounting_config: Cấu hình kế toán (tài khoản, MST công ty...).
+        misa_config: Cấu hình mapping MISA đã resolve.
     """
 
     def __init__(
@@ -68,6 +74,8 @@ class MainWindow(QMainWindow):
         classifier_config: ClassifierConfig,
         extraction_config: ExtractionConfig,
         app_settings: AppSettings,
+        accounting_config: AccountingConfig,
+        misa_config: MisaMappingConfig,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -75,6 +83,8 @@ class MainWindow(QMainWindow):
         self._classifier_config = classifier_config
         self._extraction_config = extraction_config
         self._app_settings = app_settings
+        self._accounting_config = accounting_config
+        self._misa_config = misa_config
 
         self._runs = ProcessingRunRepository(db)
         self._documents = DocumentRepository(db)
@@ -83,7 +93,10 @@ class MainWindow(QMainWindow):
         self._current_run_id: int | None = None
         self._scan_worker: ScanWorker | None = None
         self._match_worker: MatchWorker | None = None
+        self._organize_worker: OrganizeWorker | None = None
+        self._export_worker: ExportWorker | None = None
         self._dossier_rows: list[Dossier] = []
+        self._last_dossier_count = 0
 
         self.setWindowTitle("Marketing Accounting Document Tool")
         self.resize(1100, 700)
@@ -150,10 +163,12 @@ class MainWindow(QMainWindow):
 
         self._organize_button = QPushButton("③ ORGANIZE PDF", self)
         self._organize_button.setEnabled(False)
+        self._organize_button.clicked.connect(self._on_organize_clicked)
         row.addWidget(self._organize_button)
 
         self._export_button = QPushButton("④ EXPORT EXCEL", self)
         self._export_button.setEnabled(False)
+        self._export_button.clicked.connect(self._on_export_clicked)
         row.addWidget(self._export_button)
 
         self._cancel_button = QPushButton("Cancel", self)
@@ -234,6 +249,7 @@ class MainWindow(QMainWindow):
     def _on_match_finished(self, result) -> None:
         self._set_running(False)
         self._dossier_rows = result.dossiers
+        self._last_dossier_count = len(result.dossiers)
         self._populate_dossier_table(result.dossiers)
         valid = sum(1 for d in result.dossiers if status_color(d.status) == "#1e8e3e")
         self._summary_label.setText(
@@ -243,6 +259,77 @@ class MainWindow(QMainWindow):
         self._organize_button.setEnabled(len(result.dossiers) > 0)
         self._export_button.setEnabled(len(result.dossiers) > 0)
         self._update_button_states()
+
+    def _on_organize_clicked(self) -> None:
+        if self._current_run_id is None:
+            QMessageBox.warning(self, "Chưa ghép hồ sơ", "Vui lòng chạy MATCH + VALIDATE trước.")
+            return
+
+        output_root = self._output_folder_edit.text().strip()
+        if not output_root:
+            output_root = QFileDialog.getExistingDirectory(self, "Chọn thư mục xuất PDF")
+            if not output_root:
+                return
+            self._output_folder_edit.setText(output_root)
+
+        service = OrganizeService(self._db)
+        self._organize_worker = OrganizeWorker(service, self._current_run_id, output_root, parent=self)
+        self._organize_worker.finished_ok.connect(self._on_organize_finished)
+        self._organize_worker.failed.connect(self._on_worker_failed)
+
+        self._set_running(True)
+        self._organize_worker.start()
+
+    def _on_organize_finished(self, result) -> None:
+        self._set_running(False)
+        self._update_button_states()
+        message = (
+            f"Đã copy {result.copied_files} file · {result.unmatched_files} chưa ghép · "
+            f"{result.duplicate_files} trùng."
+        )
+        if result.errors:
+            message += f"\n\n{len(result.errors)} lỗi:\n" + "\n".join(result.errors[:10])
+            QMessageBox.warning(self, "Sắp xếp PDF — có lỗi", message)
+        else:
+            QMessageBox.information(self, "Đã sắp xếp PDF", message)
+
+    def _on_export_clicked(self) -> None:
+        if self._current_run_id is None:
+            QMessageBox.warning(self, "Chưa ghép hồ sơ", "Vui lòng chạy MATCH + VALIDATE trước.")
+            return
+
+        # Q21: số chứng từ bắt đầu do kế toán tự nhập — app không suy đoán.
+        voucher_start, ok = QInputDialog.getInt(
+            self,
+            "Số chứng từ bắt đầu",
+            "Nhập số thứ tự bắt đầu cho Số chứng từ MISA (ví dụ 52601):",
+            value=1,
+            minValue=1,
+            maxValue=999999,
+        )
+        if not ok:
+            return
+
+        excel_folder = self._output_folder_edit.text().strip() or "."
+        default_name = f"{excel_folder}/ACCOUNTING_RESULT_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+        output_path, _ = QFileDialog.getSaveFileName(self, "Lưu file Excel", default_name, "Excel (*.xlsx)")
+        if not output_path:
+            return
+
+        service = ExportService(self._db, self._misa_config)
+        self._export_worker = ExportWorker(
+            service, self._current_run_id, output_path, voucher_start=voucher_start, parent=self
+        )
+        self._export_worker.finished_ok.connect(self._on_export_finished)
+        self._export_worker.failed.connect(self._on_worker_failed)
+
+        self._set_running(True)
+        self._export_worker.start()
+
+    def _on_export_finished(self, output_path) -> None:
+        self._set_running(False)
+        self._update_button_states()
+        QMessageBox.information(self, "Đã xuất Excel", f"Đã lưu: {output_path}")
 
     def _on_worker_failed(self, message: str) -> None:
         self._set_running(False)
@@ -288,11 +375,18 @@ class MainWindow(QMainWindow):
     def _set_running(self, running: bool) -> None:
         self._scan_button.setEnabled(not running)
         self._match_button.setEnabled(not running)
-        self._cancel_button.setEnabled(running)
+        self._organize_button.setEnabled(not running and self._last_dossier_count > 0)
+        self._export_button.setEnabled(not running and self._last_dossier_count > 0)
+        # Cancel chỉ có ý nghĩa hợp tác cho SCAN (xem app/ui/workers.py) —
+        # ORGANIZE/EXPORT không hỗ trợ huỷ giữa chừng, chạy ngắn và ghi file
+        # một lần nên cố ý không cho bấm Cancel trong lúc chúng chạy.
+        self._cancel_button.setEnabled(running and self._scan_worker is not None and self._scan_worker.isRunning())
 
     def _update_button_states(self) -> None:
         has_run = self._current_run_id is not None
         self._match_button.setEnabled(has_run)
+        self._organize_button.setEnabled(self._last_dossier_count > 0)
+        self._export_button.setEnabled(self._last_dossier_count > 0)
 
 
 def _qcolor(hex_color: str):

@@ -16,9 +16,11 @@ from PySide6.QtWidgets import QApplication
 
 from app.config_loader import (
     DEFAULT_CONFIG_DIR,
+    load_accounting_config,
     load_app_settings,
     load_classifier_config,
     load_extraction_config,
+    load_misa_mapping_config,
 )
 from app.database.database import Database
 from app.ui.main_window import MainWindow
@@ -40,13 +42,17 @@ def main() -> int:
 
     classifier_config = load_classifier_config()
     extraction_config = load_extraction_config()
+    accounting_config = load_accounting_config()
+    misa_config = load_misa_mapping_config(accounting_config)
 
     db_path = app_settings.raw.get("paths", {}).get("database") or "database/accounting_app.db"
     db_path = DEFAULT_CONFIG_DIR.parent / db_path
 
     app = QApplication(sys.argv)
     with Database(db_path) as db:
-        window = MainWindow(db, classifier_config, extraction_config, app_settings)
+        window = MainWindow(
+            db, classifier_config, extraction_config, app_settings, accounting_config, misa_config
+        )
         window.show()
         return app.exec()
 

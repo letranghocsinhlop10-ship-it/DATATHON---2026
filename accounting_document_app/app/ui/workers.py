@@ -19,7 +19,7 @@ from PySide6.QtCore import QThread, Signal
 from app.services.match_service import MatchResult, MatchService
 from app.services.scan_service import ScanProgress, ScanResult, ScanService
 
-__all__ = ["ScanWorker", "MatchWorker"]
+__all__ = ["ScanWorker", "MatchWorker", "OrganizeWorker", "ExportWorker"]
 
 logger = logging.getLogger(__name__)
 
@@ -87,4 +87,66 @@ class MatchWorker(QThread):
             self.finished_ok.emit(result)
         except Exception as exc:  # noqa: BLE001
             logger.exception("MatchWorker lỗi không lường trước")
+            self.failed.emit(str(exc))
+
+
+class OrganizeWorker(QThread):
+    """Chạy ``OrganizeService.organize_run`` trong luồng riêng.
+
+    Signals:
+        finished_ok: Phát khi sắp xếp xong, mang ``OrganizeResult``.
+        failed: Phát khi có lỗi không lường trước.
+    """
+
+    finished_ok = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, service, run_id: int, output_root: str, parent=None) -> None:
+        super().__init__(parent)
+        self._service = service
+        self._run_id = run_id
+        self._output_root = output_root
+
+    def run(self) -> None:  # noqa: D102 - override QThread.run
+        try:
+            result = self._service.organize_run(self._run_id, self._output_root)
+            self.finished_ok.emit(result)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("OrganizeWorker lỗi không lường trước")
+            self.failed.emit(str(exc))
+
+
+class ExportWorker(QThread):
+    """Chạy ``ExportService.export_run`` trong luồng riêng.
+
+    Signals:
+        finished_ok: Phát khi xuất xong, mang đường dẫn file ``.xlsx``.
+        failed: Phát khi có lỗi không lường trước.
+    """
+
+    finished_ok = Signal(object)
+    failed = Signal(str)
+
+    def __init__(
+        self, service, run_id: int, output_path: str, *, voucher_start: int,
+        require_reviewed_for_misa: bool = False, parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._service = service
+        self._run_id = run_id
+        self._output_path = output_path
+        self._voucher_start = voucher_start
+        self._require_reviewed = require_reviewed_for_misa
+
+    def run(self) -> None:  # noqa: D102 - override QThread.run
+        try:
+            result = self._service.export_run(
+                self._run_id,
+                self._output_path,
+                voucher_start=self._voucher_start,
+                require_reviewed_for_misa=self._require_reviewed,
+            )
+            self.finished_ok.emit(result)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("ExportWorker lỗi không lường trước")
             self.failed.emit(str(exc))

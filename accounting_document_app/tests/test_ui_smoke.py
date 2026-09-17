@@ -60,37 +60,38 @@ def _no_blocking_messagebox(monkeypatch):
 
 
 class TestMainWindow:
-    def test_dung_thanh_cong(self, qtbot, db, classifier_config, extraction_config, app_settings):
+    def test_dung_thanh_cong(self, qtbot, db, classifier_config, extraction_config, app_settings, accounting_config, misa_config):
         from app.ui.main_window import MainWindow
 
-        win = MainWindow(db, classifier_config, extraction_config, app_settings)
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
         qtbot.addWidget(win)
         assert win.windowTitle() == "Marketing Accounting Document Tool"
         assert win._scan_button.isEnabled() is True
 
-    def test_match_bi_khoa_khi_chua_scan(self, qtbot, db, classifier_config, extraction_config, app_settings):
+    def test_match_bi_khoa_khi_chua_scan(self, qtbot, db, classifier_config, extraction_config, app_settings, accounting_config, misa_config):
         from app.ui.main_window import MainWindow
 
-        win = MainWindow(db, classifier_config, extraction_config, app_settings)
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
         qtbot.addWidget(win)
         assert win._match_button.isEnabled() is False
 
     def test_organize_va_export_bi_khoa_luc_dau(
-        self, qtbot, db, classifier_config, extraction_config, app_settings
+        self, qtbot, db, classifier_config, extraction_config, app_settings, accounting_config, misa_config
     ):
         from app.ui.main_window import MainWindow
 
-        win = MainWindow(db, classifier_config, extraction_config, app_settings)
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
         qtbot.addWidget(win)
         assert win._organize_button.isEnabled() is False
         assert win._export_button.isEnabled() is False
 
     def test_scan_thu_muc_trong_bao_loi(
-        self, qtbot, db, classifier_config, extraction_config, app_settings, monkeypatch
+        self, qtbot, db, classifier_config, extraction_config, app_settings,
+        accounting_config, misa_config, monkeypatch,
     ):
         from app.ui.main_window import MainWindow
 
-        win = MainWindow(db, classifier_config, extraction_config, app_settings)
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
         qtbot.addWidget(win)
         win._input_folder_edit.setText("")  # chưa chọn thư mục
 
@@ -101,11 +102,11 @@ class TestMainWindow:
         win._on_scan_clicked()
         assert called.get("warned") is True
 
-    def test_populate_bang_dossier(self, qtbot, db, classifier_config, extraction_config, app_settings):
+    def test_populate_bang_dossier(self, qtbot, db, classifier_config, extraction_config, app_settings, accounting_config, misa_config):
         from app.models.enums import DossierStatus
         from app.ui.main_window import MainWindow
 
-        win = MainWindow(db, classifier_config, extraction_config, app_settings)
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
         qtbot.addWidget(win)
         dossier = Dossier(
             dossier_code="HS000001", reference="ABCD1234EF",
@@ -294,7 +295,7 @@ class TestLuongLamViecDayDu:
     """
 
     def test_scan_va_match_tren_pdf_that(
-        self, qtbot, db, classifier_config, extraction_config, app_settings
+        self, qtbot, db, classifier_config, extraction_config, app_settings, accounting_config, misa_config
     ):
         if not _SAMPLE_DIR or not Path(_SAMPLE_DIR).is_dir():
             pytest.skip("Không có thư mục PDF mẫu trong môi trường này (đặt ACCOUNTING_SAMPLE_DIR)")
@@ -302,7 +303,7 @@ class TestLuongLamViecDayDu:
 
         from app.ui.main_window import MainWindow
 
-        win = MainWindow(db, classifier_config, extraction_config, app_settings)
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
         qtbot.addWidget(win)
         win._input_folder_edit.setText(_SAMPLE_DIR)
 
@@ -323,3 +324,73 @@ class TestLuongLamViecDayDu:
         assert win._dossier_table.rowCount() >= 1
         assert win._dossier_table.item(0, 0).text() == "HS000001"
         assert win._export_button.isEnabled() is True
+
+    def test_organize_va_export_qua_nut_bam_that(
+        self, qtbot, db, classifier_config, extraction_config, app_settings,
+        accounting_config, misa_config, monkeypatch, tmp_path,
+    ):
+        """Bấm ③ ORGANIZE PDF và ④ EXPORT EXCEL thật — không gọi thẳng
+        OrganizeService/ExportService — để bắt lỗi dây nối signal/slot hoặc
+        threading giống cách test SCAN/MATCH đã từng bắt được bug sqlite3
+        check_same_thread. Giả lập hộp thoại chọn file bằng monkeypatch vì
+        môi trường offscreen không có ai bấm OK."""
+        if not _SAMPLE_DIR or not Path(_SAMPLE_DIR).is_dir():
+            pytest.skip("Không có thư mục PDF mẫu trong môi trường này (đặt ACCOUNTING_SAMPLE_DIR)")
+
+        from PySide6.QtWidgets import QFileDialog, QInputDialog
+
+        from app.ui.main_window import MainWindow
+
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
+        qtbot.addWidget(win)
+        win._input_folder_edit.setText(_SAMPLE_DIR)
+        output_root = tmp_path / "OUTPUT"
+        win._output_folder_edit.setText(str(output_root))
+
+        win._on_scan_clicked()
+        with qtbot.waitSignal(win._scan_worker.finished_ok, timeout=10000):
+            pass
+        qtbot.waitUntil(lambda: not win._scan_worker.isRunning(), timeout=2000)
+
+        win._on_match_clicked()
+        with qtbot.waitSignal(win._match_worker.finished_ok, timeout=10000):
+            pass
+        qtbot.waitUntil(lambda: not win._match_worker.isRunning(), timeout=2000)
+
+        # --- ORGANIZE PDF (thư mục xuất đã điền sẵn -> không cần hộp thoại) ---
+        win._on_organize_clicked()
+        assert win._organize_worker is not None
+        with qtbot.waitSignal(win._organize_worker.finished_ok, timeout=10000):
+            pass
+        qtbot.waitUntil(lambda: not win._organize_worker.isRunning(), timeout=2000)
+
+        # Không giả định giá trị reference cụ thể của bộ PDF mẫu — thư mục
+        # xuất ra tên gì cũng được, miễn đúng tiền tố mã hồ sơ và có đủ 3 file.
+        candidates = list(output_root.glob("HS000001_*"))
+        assert len(candidates) == 1, f"Không tìm thấy đúng 1 thư mục HS000001_*: {candidates}"
+        dossier_folder = candidates[0]
+        assert (dossier_folder / "01_META_INVOICE.pdf").is_file()
+        assert (dossier_folder / "02_VPBANK_DEBIT_NOTE.pdf").is_file()
+        assert (dossier_folder / "03_VPBANK_VAT_INVOICE.pdf").is_file()
+
+        # --- EXPORT EXCEL (giả lập QInputDialog + QFileDialog.getSaveFileName) ---
+        excel_path = tmp_path / "ACCOUNTING_RESULT.xlsx"
+        monkeypatch.setattr(QInputDialog, "getInt", staticmethod(lambda *a, **k: (52601, True)))
+        monkeypatch.setattr(
+            QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(excel_path), ""))
+        )
+
+        win._on_export_clicked()
+        assert win._export_worker is not None
+        with qtbot.waitSignal(win._export_worker.finished_ok, timeout=10000):
+            pass
+        qtbot.waitUntil(lambda: not win._export_worker.isRunning(), timeout=2000)
+
+        assert excel_path.is_file()
+        import openpyxl
+
+        wb = openpyxl.load_workbook(excel_path)
+        misa_sheet = wb[misa_config.sheet_name]
+        header = [c.value for c in misa_sheet[1]]
+        so_ct_col = header.index("Số chứng từ (*)") + 1
+        assert misa_sheet.cell(row=2, column=so_ct_col).value == "NVK052601"

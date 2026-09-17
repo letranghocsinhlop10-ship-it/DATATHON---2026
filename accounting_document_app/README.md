@@ -3,10 +3,10 @@
 Ứng dụng desktop Windows đọc, phân loại, ghép bộ chứng từ PDF chi phí
 Marketing và xuất dữ liệu Excel phục vụ hạch toán.
 
-**Trạng thái: PHASE 4 hoàn thành** — giao diện PySide6 đã chạy, dựng được
-qua Qt thật (kiểm chứng offscreen, không chỉ đúng cú pháp) và đã lái được
-toàn bộ luồng SCAN → MATCH qua worker thread trên 3 PDF thật, kết quả hiện
-đúng lên bảng. Chưa có Excel/PDF organizer (Phase 5).
+**Trạng thái: PHASE 5 hoàn thành** — xuất Excel 4 sheet và sắp xếp PDF theo
+hồ sơ đã chạy, kiểm chứng bằng cách bấm nút thật qua GUI (không chỉ gọi
+service) trên toàn bộ 4 bước SCAN → MATCH → ORGANIZE → EXPORT với 3 PDF
+thật, mở lại file .xlsx bằng openpyxl để đối chiếu từng ô với số liệu gốc.
 
 ---
 
@@ -60,14 +60,17 @@ app/
   database/      Database (schema SQLite) · document_repository ·
                  dossier_repository · settings_repository ·
                  processing_run_repository
-  services/      scan_service · match_service       (điều phối pipeline)
+  exporters/     excel_exporter (4 sheet) · misa_exporter          (xuất)
+                 (template ${accounts.*}/${meta.*}) · pdf_organizer
+  services/      scan_service · match_service · export_service ·
+                 organize_service                  (điều phối pipeline)
   ui/            main_window · dossier_detail_window · review_window ·
                  document_preview · settings_window · workers (QThread) ·
                  view_models (thuần, không Qt) · widgets/status_badge
   utils/         money · date · file · string · logging
-  config_loader  nạp + kiểm tra YAML
+  config_loader  nạp + kiểm tra YAML (kể cả accounting.yaml, misa_mapping.yaml)
 config/          toàn bộ LUẬT NGHIỆP VỤ (không có luật nào nằm trong code)
-tests/           293 test, fixture đã che số liệu
+tests/           339 test, fixture đã che số liệu
 docs/            tài liệu thiết kế Phase 1 + phân tích file mẫu + MISA
 main.py          điểm vào ứng dụng
 ```
@@ -86,6 +89,30 @@ Không sửa code sẵn có:
    `app/extractors/registry.py`.
 
 ---
+
+## Xuất kết quả
+
+* `ExcelExporter` — 4 sheet đúng §22 Phase 1: `HO_SO` (1 dossier/dòng),
+  `CHUNG_TU` (1 PDF/dòng, kể cả chưa ghép/lỗi/trùng — không file nào biến
+  mất im lặng), sheet MISA (tên lấy từ `misa_mapping.yaml`), `CHECK_ERROR`
+  (BLOCKING trước, WARNING/INFO sau). Tiền luôn ghi số thật (`int` khi VND
+  nguyên đồng) để Excel `SUM()` được trực tiếp — không bao giờ ghi chuỗi.
+* `MisaExporter` — template hai lớp: `${accounts.*}`/`${parameters.*}`
+  resolve TĨNH lúc nạp config; `${meta.*}`/`${bank_vat.*}` resolve ĐỘNG theo
+  từng dossier lúc xuất. `condition`/`amount` là biểu thức hạn chế
+  (`role.field`), không dùng `eval()` trên dữ liệu PDF. Số tiền luôn lấy từ
+  hoá đơn — không bao giờ tự tính lại theo thuế suất.
+* `PdfOrganizer` — chỉ `shutil.copy2`, không sửa/xoá/di chuyển file gốc.
+  Hồ sơ thiếu chứng từ → `_MISSING_0N_<ROLE>.txt`; trùng chứng từ → giữ lại
+  TẤT CẢ kèm hậu tố `_a`/`_b`, không tự chọn bản chính; file trùng byte
+  (SHA256) → `DUPLICATES/<hash-prefix>/`, tách biệt `UNMATCHED/<lý do>/`.
+
+**Kiểm chứng bằng bấm nút GUI thật, không chỉ gọi service:** test tích hợp
+lái đúng cả 4 nút (SCAN → MATCH → ORGANIZE → EXPORT) qua worker thread trên
+3 PDF thật, rồi mở lại `.xlsx` bằng `openpyxl` đối chiếu từng ô — số tiền
+trong sheet MISA khớp chính xác dữ liệu gốc (2.300.611 / 230.061 / 25.307 /
+2.531), thư mục `OUTPUT/HS000001_.../01_META_INVOICE.pdf` chứa đúng file,
+và MD5 file gốc không đổi sau khi tổ chức lại.
 
 ## Giao diện — điều phối, không chứa logic nghiệp vụ
 
@@ -165,6 +192,7 @@ Rút ra từ phân tích file mẫu (`docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md`):
 | 2b | Tách PDF gộp nhiều chứng từ + mapping MISA | ✅ |
 | 3 | Reference matcher, dossier builder/validator, SQLite | ✅ |
 | 4 | Giao diện PySide6 | ✅ |
+| 5 | Excel exporter, PDF organizer | ✅ |
 | 3 | Reference matcher, dossier builder/validator, SQLite | ⏳ |
 | 4 | Giao diện PySide6 | ⏳ |
 | 5 | Excel exporter, PDF organizer, báo cáo lỗi | ⏳ |
