@@ -87,6 +87,32 @@ class PDFContent:
                 return p
         raise IndexError(f"Không có trang {number} trong {self.path.name}")
 
+    def subset(self, page_numbers: "list[int] | tuple[int, ...]") -> "PDFContent":
+        """Trả về một ``PDFContent`` chỉ gồm các trang đã chọn.
+
+        Dùng khi một file PDF chứa nhiều chứng từ: mỗi chứng từ được xử lý
+        như một tài liệu độc lập trên đúng phần trang của nó, nên regex của
+        chứng từ này không thể lấy nhầm dữ liệu của chứng từ kia.
+
+        Args:
+            page_numbers: Các số trang (bắt đầu từ 1) cần giữ lại.
+
+        Returns:
+            ``PDFContent`` mới; ``path`` giữ nguyên để vẫn truy vết được file gốc.
+
+        Raises:
+            IndexError: Có số trang không tồn tại.
+        """
+        wanted = list(page_numbers)
+        pages = [self.page(n) for n in wanted]
+        return PDFContent(
+            path=self.path,
+            page_count=len(pages),
+            pages=pages,
+            text_source=self.text_source,
+            is_encrypted=self.is_encrypted,
+        )
+
     def find_label_right(
         self,
         label: str,

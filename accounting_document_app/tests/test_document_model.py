@@ -99,3 +99,31 @@ class TestExtractedField:
         assert edited.is_manual is True
         assert edited.raw_snippet == original.raw_snippet
         assert edited.rule_id == original.rule_id
+
+
+class TestPhamViTrang:
+    """Một file PDF có thể chứa nhiều chứng từ (Q13)."""
+
+    def _doc_with_pages(self, start: int, end: int, index: int = 0) -> Document:
+        return Document(
+            file_name="gop.pdf",
+            file_path=Path("gop.pdf"),
+            file_hash="abc123",
+            document_type=DocumentType.VPBANK_DEBIT_NOTE,
+            page_start=start,
+            page_end=end,
+            segment_index=index,
+        )
+
+    def test_segment_id_phan_biet_cac_chung_tu_cung_file(self):
+        first = self._doc_with_pages(1, 1, 0)
+        second = self._doc_with_pages(2, 2, 1)
+        assert first.file_hash == second.file_hash
+        assert first.segment_id != second.segment_id
+
+    def test_segment_id_gom_hash_va_pham_vi_trang(self):
+        assert self._doc_with_pages(3, 4).segment_id == "abc123:3-4"
+
+    def test_nhan_pham_vi_trang(self):
+        assert self._doc_with_pages(1, 1).page_range_label == "trang 1"
+        assert self._doc_with_pages(3, 4).page_range_label == "trang 3-4"

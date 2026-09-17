@@ -1,5 +1,5 @@
 # Chính sách kế toán — ứng dụng KHÔNG tự quyết định, chỉ làm theo cấu hình.
-# Các tài khoản dưới đây CHỈ LÀ VÍ DỤ, kế toán trưởng phải xác nhận.
+# Các giá trị dưới đây rút ra từ FILE MISA THẬT do kế toán cung cấp.
 
 version: 1
 
@@ -8,20 +8,34 @@ company:
   tax_code: ""              # dùng để đối chiếu TAX_CODE_MISMATCH
 
 accounts:
-  marketing_expense: "6417"   # chi phí quảng cáo
-  bank_fee_expense: "6427"    # phí dịch vụ ngân hàng
-  input_vat: "1331"           # thuế GTGT đầu vào được khấu trừ
+  marketing_expense: "6417"   # chi phí quảng cáo (file mẫu: TK Nợ của CẢ HAI dòng)
+  supplier_payable: "331"     # phải trả người bán (file mẫu: TK Có)
+  bank_fee_expense: "6427"    # phí dịch vụ ngân hàng — CHỜ XÁC NHẬN
+  input_vat: "1331"           # thuế GTGT đầu vào — hiện KHÔNG dùng cho Meta
   bank: "1121"                # tiền gửi ngân hàng
 
+suppliers:
+  # Đối tượng Có trên chứng từ MISA. File mẫu dùng MST Việt Nam của Meta.
+  meta:
+    object_code: "9000000327"
+    name: "Meta Platforms Ireland Limited"
+
 policy:
-  # Hoá đơn Meta ghi rõ: Meta đã đăng ký thuế tại VN và tự nộp FCT,
-  # bên mua KHÔNG khấu trừ/khấu lưu. Vì vậy mặc định tắt.
+  # Hoá đơn Meta ghi rõ: Meta đã đăng ký thuế tại VN và tự nộp FCT, bên mua
+  # KHÔNG khấu trừ/khấu lưu.
   withhold_foreign_contractor_tax: false
 
-  # CHỜ XÁC NHẬN (Q7-bis): số VAT trên hoá đơn Meta có được kê khai khấu trừ
-  # vào TK 1331 không, hay hạch toán toàn bộ vào chi phí?
-  # true  -> tách 6417 / 1331
-  # false -> dồn toàn bộ tổng tiền vào 6417
-  deduct_meta_input_vat: true
+  # Q7 ĐÃ XÁC NHẬN: KHÔNG khấu trừ vào TK 1331, không kê khai thuế GTGT đầu
+  # vào thông thường. Số thuế trên hoá đơn Meta được hạch toán thẳng vào
+  # cùng tài khoản chi phí (6417) — đúng như file mẫu: cả hai dòng đều
+  # 6417 / 331, toàn bộ nhóm cột thuế bỏ trống.
+  deduct_meta_input_vat: false
 
-  deduct_bank_fee_input_vat: true
+  # Phí ngân hàng KHÔNG xuất hiện trong file MISA mẫu -> chưa rõ hạch toán
+  # ở đâu. Tạm tắt, chờ kế toán xác nhận.
+  book_bank_fee: false
+  deduct_bank_fee_input_vat: false
+
+  # LUÔN lấy số thuế in trên hoá đơn, KHÔNG tự tính subtotal * thuế suất.
+  # (File mẫu có 1/64 dòng lệch so với 10% — bằng chứng nhập tay có sai sót.)
+  recompute_vat_from_rate: false

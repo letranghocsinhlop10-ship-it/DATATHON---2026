@@ -1,0 +1,122 @@
+# Mapping sang file import "Chứng từ nghiệp vụ khác" của MISA SME 2023.
+#
+# Xây dựng từ FILE MẪU THẬT do kế toán cung cấp (128 dòng = 64 hoá đơn Meta).
+# Quan sát được từ file mẫu:
+#   * 34 cột, nhưng chỉ 8 cột được dùng; 26 cột còn lại bỏ trống hoàn toàn
+#   * mỗi hoá đơn Meta sinh ĐÚNG 2 dòng, cả hai đều 6417 / 331
+#   * toàn bộ nhóm cột thuế (C20..C33) BỎ TRỐNG -> không kê khai thuế GTGT
+#     đầu vào (đúng xác nhận Q7)
+#   * Đối tượng Có luôn là MST Việt Nam của Meta
+#   * Ngày chứng từ = Ngày hạch toán = ngày trên hoá đơn
+#
+# THỨ TỰ CỘT PHẢI GIỮ NGUYÊN 34 CỘT để MISA đọc đúng.
+
+version: 1
+sheet_name: "Chứng từ nghiệp vụ khác"
+header_row: 1
+
+# ------------------------------------------------------------------ tham số
+parameters:
+  # Chuỗi mô tả đơn vị/địa điểm, ghép vào diễn giải.
+  # Để trống trong repo công khai — kế toán nhập trong Settings.
+  # Dạng trong file mẫu: "<tên đơn vị> - <địa chỉ>".
+  cost_center_label: ""
+
+  # Số chứng từ: file mẫu dùng NVK + 6 chữ số chạy liên tục (052601 -> 052728).
+  # KHÔNG suy ra được từ ngày tháng -> phải do người dùng nhập số bắt đầu.
+  voucher_number:
+    prefix: "NVK"
+    digits: 6
+    start: null        # bắt buộc nhập trước khi xuất; null -> app hỏi người dùng
+    increment: 1
+
+  # MST Việt Nam của Meta Platforms Ireland (in công khai trên mọi hoá đơn
+  # Meta tại VN), dùng làm "Đối tượng Có" — đúng như file mẫu.
+  supplier_object_code: "9000000327"
+
+# ------------------------------------------------- các dòng hạch toán sinh ra
+# Mỗi hồ sơ VALID sinh ra các dòng dưới đây, theo đúng thứ tự.
+lines:
+  - id: meta_ad_expense
+    enabled: true
+    condition: "meta.subtotal is not None"
+    debit_account: "${accounts.marketing_expense}"
+    credit_account: "${accounts.supplier_payable}"
+    amount: "meta.subtotal"
+    credit_object: "${parameters.supplier_object_code}"
+    description: >-
+      Hạch toán chi phí quảng cáo facebook cho ${parameters.cost_center_label}
+      theo số hóa đơn ${meta.invoice_number} ngày ${meta.document_date|dd/mm/yyyy}
+
+  - id: meta_ad_vat
+    enabled: true
+    # Theo xác nhận Q7: KHÔNG khấu trừ vào 1331 — số thuế được hạch toán
+    # thẳng vào cùng tài khoản chi phí, y như file mẫu.
+    condition: "meta.vat_amount is not None and meta.vat_amount > 0"
+    debit_account: "${accounts.marketing_expense}"
+    credit_account: "${accounts.supplier_payable}"
+    amount: "meta.vat_amount"          # LẤY TỪ HOÁ ĐƠN, không tự tính 10%
+    credit_object: "${parameters.supplier_object_code}"
+    description: >-
+      Thuế GTGT chi phí quảng cáo facebook cho ${parameters.cost_center_label}
+      theo số hóa đơn ${meta.invoice_number} ngày ${meta.document_date|dd/mm/yyyy}
+
+  # CHỜ XÁC NHẬN: file mẫu KHÔNG có dòng nào cho phí ngân hàng VPBank.
+  # Tạm tắt để không tự ý sinh bút toán mà kế toán chưa duyệt.
+  - id: bank_fee_expense
+    enabled: false
+    condition: "bank_vat.subtotal is not None"
+    debit_account: "${accounts.bank_fee_expense}"
+    credit_account: "${accounts.bank}"
+    amount: "bank_vat.subtotal"
+    description: >-
+      Phí dịch vụ ngân hàng theo hóa đơn ${bank_vat.invoice_serial}
+      số ${bank_vat.invoice_number} ngày ${bank_vat.document_date|dd/mm/yyyy}
+
+  - id: bank_fee_vat
+    enabled: false
+    condition: "bank_vat.vat_amount is not None and bank_vat.vat_amount > 0"
+    debit_account: "${accounts.input_vat}"
+    credit_account: "${accounts.bank}"
+    amount: "bank_vat.vat_amount"
+    description: >-
+      Thuế GTGT phí dịch vụ ngân hàng theo hóa đơn ${bank_vat.invoice_serial}
+      số ${bank_vat.invoice_number}
+
+# ------------------------------------------------------------------ 34 cột
+# source = null  -> cột để trống (đúng như file mẫu)
+columns:
+  - {header: "Hiển thị trên sổ",                  source: null}
+  - {header: "Ngày chứng từ (*)",                 source: "line.document_date", format: "dd/mm/yyyy"}
+  - {header: "Ngày hạch toán (*)",                source: "line.posting_date",  format: "dd/mm/yyyy"}
+  - {header: "Số chứng từ (*)",                   source: "line.voucher_number"}
+  - {header: "Diễn giải",                         source: "line.description"}
+  - {header: "Hạn thanh toán",                    source: null}
+  - {header: "Diễn giải (Hạch toán)",             source: "line.description"}
+  - {header: "TK Nợ (*)",                         source: "line.debit_account"}
+  - {header: "TK Có (*)",                         source: "line.credit_account"}
+  - {header: "Số Tiền",                           source: "line.amount",        format: "integer"}
+  - {header: "Đối tượng Nợ",                      source: null}
+  - {header: "Đối tượng Có",                      source: "line.credit_object"}
+  - {header: "TK ngân hàng",                      source: null}
+  - {header: "Khoản mục CP",                      source: null}
+  - {header: "Đơn vị",                            source: null}
+  - {header: "Đối tượng THCP",                    source: null}
+  - {header: "Công trình",                        source: null}
+  - {header: "Hợp đồng bán",                      source: null}
+  - {header: "CP không hợp lý",                   source: null}
+  - {header: "Mã thống kê",                       source: null}
+  - {header: "Diễn giải (Thuế)",                  source: null}
+  - {header: "TK thuế GTGT",                      source: null}
+  - {header: "Tiền thuế GTGT",                    source: null}
+  - {header: "% thuế GTGT",                       source: null}
+  - {header: "Tỷ lệ tính thuế (Thuế suất KHAC)",  source: null}
+  - {header: "Giá trị HHDV chưa thuế",            source: null}
+  - {header: "Mẫu số HĐ",                         source: null}
+  - {header: "Ngày hóa đơn",                      source: null}
+  - {header: "Ký hiệu HĐ",                        source: null}
+  - {header: "Số hóa đơn",                        source: null}
+  - {header: "Nhóm HHDV mua vào",                 source: null}
+  - {header: "Mã đối tượng thuế",                 source: null}
+  - {header: "Tên đối tượng thuế",                source: null}
+  - {header: "Mã số thuế đối tượng thuế",         source: null}

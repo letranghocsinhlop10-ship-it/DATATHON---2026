@@ -30,6 +30,13 @@ class Document:
     page_count: int | None = None
     document_id: int | None = None
 
+    #: Phạm vi trang của chứng từ trong file PDF gốc (bắt đầu từ 1).
+    #: Với PDF chỉ chứa một chứng từ thì là toàn bộ file.
+    page_start: int = 1
+    page_end: int | None = None
+    #: Thứ tự chứng từ trong file (0 nếu file chỉ có một chứng từ).
+    segment_index: int = 0
+
     document_type: DocumentType = DocumentType.UNKNOWN
     classify_score: float | None = None
     classify_rule_id: str | None = None
@@ -46,6 +53,21 @@ class Document:
     created_at: datetime = field(default_factory=datetime.now)
 
     # ------------------------------------------------------------- truy cập
+
+    @property
+    def segment_id(self) -> str:
+        """Định danh duy nhất của chứng từ = hash file + phạm vi trang.
+
+        Cần thiết vì một file PDF có thể chứa nhiều chứng từ, nên riêng
+        ``file_hash`` không còn đủ để phân biệt.
+        """
+        return f"{self.file_hash}:{self.page_start}-{self.page_end or self.page_start}"
+
+    @property
+    def page_range_label(self) -> str:
+        """Nhãn phạm vi trang để hiển thị, ví dụ ``"trang 3-4"``."""
+        end = self.page_end or self.page_start
+        return f"trang {self.page_start}" if end == self.page_start else f"trang {self.page_start}-{end}"
 
     def field_of(self, name: str) -> ExtractedField:
         """Lấy trường kèm bằng chứng nguồn."""

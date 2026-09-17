@@ -9,6 +9,12 @@
 # Nếu từ 2 loại trở lên cùng đạt -> UNKNOWN + CLASSIFY_AMBIGUOUS.
 # Hệ thống KHÔNG tự chọn loại có điểm cao hơn.
 #
+# page_start_markers: dấu hiệu MỘT CHỨNG TỪ MỚI BẮT ĐẦU tại trang này, dùng để
+# tách file PDF gộp nhiều chứng từ. Chỉ được chọn chuỗi CHẮC CHẮN chỉ xuất hiện
+# ở TRANG ĐẦU của chứng từ — nếu chọn nhầm chuỗi có ở trang 2 thì một chứng từ
+# sẽ bị cắt đôi. Trang không có marker nào được coi là trang tiếp theo của
+# chứng từ liền trước.
+#
 # Thêm ngân hàng / nhà cung cấp mới = thêm một khối ở đây, KHÔNG sửa code.
 
 version: 1
@@ -34,6 +40,9 @@ types:
       - "PHIẾU GIAO DỊCH GHI NỢ"
       - "Ký hiệu (Serial)"
     min_score: 1
+    # "Meta Platforms Ireland" KHÔNG dùng được vì nó nằm ở trang 2 của hoá đơn.
+    page_start_markers:
+      - "Hóa đơn thuế cho"
 
   VPBANK_DEBIT_NOTE:
     description: "Phiếu giao dịch ghi nợ VPBank"
@@ -48,6 +57,9 @@ types:
     must_not_have:
       - "Ký hiệu (Serial)"
     min_score: 1
+    page_start_markers:
+      - "PHIẾU GIAO DỊCH GHI NỢ"
+      - "DEBIT NOTE"
 
   VPBANK_VAT_INVOICE:
     description: "Hoá đơn GTGT phí dịch vụ ngân hàng VPBank"
@@ -66,3 +78,5 @@ types:
     must_not_have:
       - "PHIẾU GIAO DỊCH GHI NỢ"
     min_score: 1
+    page_start_markers:
+      - "Ký hiệu (Serial)"

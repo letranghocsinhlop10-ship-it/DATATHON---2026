@@ -81,7 +81,14 @@ Rút ra từ phân tích file mẫu (`docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md`):
    ⇒ Khai báo cứng trong `config/extraction_rules.yaml`; gặp chuỗi nhập nhằng
    thì `AmountAmbiguousError`, không đoán.
 
-3. **Diễn giải bị ngắt dòng và thiếu dấu cách** — hai chứng từ trong cùng một
+3. **Một file PDF có thể chứa nhiều chứng từ** — xử lý cả file như một chứng
+   từ sẽ khiến regex lấy nhầm dữ liệu của chứng từ khác.
+   ⇒ `VoucherSplitter` cắt file theo `page_start_markers`; trang không có
+   marker được coi là trang tiếp theo của chứng từ liền trước (nhờ vậy hoá
+   đơn Meta 2 trang không bị cắt đôi). Không tìm thấy marker thì giữ nguyên
+   cả file — không đoán chỗ cắt.
+
+4. **Diễn giải bị ngắt dòng và thiếu dấu cách** — hai chứng từ trong cùng một
    bộ ghi `thanh toan tai` và `thanh toantai`.
    ⇒ Regex chỉ neo vào từ khoá nhà cung cấp (`FACEBK`), chạy trên text đã gộp
    dòng. Đuôi mô tả là *kỳ vọng được kiểm tra*, không phải điều kiện bắt buộc.
@@ -94,7 +101,9 @@ Rút ra từ phân tích file mẫu (`docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md`):
 |---|---|---|
 | 1 | Phân tích, kiến trúc, schema, thiết kế | ✅ `docs/PHASE1_ARCHITECTURE.md` |
 | 1b | Phân tích 3 PDF mẫu | ✅ `docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md` |
+| 1c | Phân tích file MISA thật | ✅ `docs/PHASE1_ADDENDUM_MISA_TEMPLATE.md` |
 | 2 | Models, config, PDFReader, classifier, 3 extractor, test | ✅ |
+| 2b | Tách PDF gộp nhiều chứng từ + mapping MISA | ✅ |
 | 3 | Reference matcher, dossier builder/validator, SQLite | ⏳ |
 | 4 | Giao diện PySide6 | ⏳ |
 | 5 | Excel exporter, PDF organizer, báo cáo lỗi | ⏳ |
@@ -103,19 +112,27 @@ Rút ra từ phân tích file mẫu (`docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md`):
 
 ---
 
+## Sơ đồ hạch toán (theo file MISA thật của công ty)
+
+Một hoá đơn Meta sinh **đúng 2 dòng**, cả hai đều `6417 / 331`, đối tượng Có
+là MST Việt Nam của Meta:
+
+| Dòng | Nội dung | TK Nợ | TK Có | Số tiền |
+|---|---|---|---|---|
+| 1 | Chi phí quảng cáo | 6417 | 331 | `Tổng phụ` trên hoá đơn |
+| 2 | Thuế GTGT | 6417 | 331 | `VAT` trên hoá đơn |
+
+Không kê khai thuế GTGT đầu vào (toàn bộ nhóm cột thuế của MISA bỏ trống).
+Số thuế **luôn lấy từ hoá đơn**, không tự tính `tổng phụ × thuế suất`.
+
 ## Câu hỏi nghiệp vụ còn mở
 
-Trước Phase 5:
-
-* **Q7-bis** — Số VAT trên hoá đơn Meta có kê khai khấu trừ vào TK 1331
-  không, hay hạch toán toàn bộ vào chi phí? (`config/accounting.yaml` →
-  `policy.deduct_meta_input_vat`)
-* **Q8** — File Excel mẫu import của MISA SME 2023.
-* **Q9 / Q10** — `Ma_doi_tuong` lấy từ đâu; dải `So_chung_tu`.
-
-Trước Phase 4:
-
-* **Q13** — Một PDF có bao giờ chứa nhiều chứng từ không?
+* **Q19** — Phí dịch vụ ngân hàng VPBank hạch toán ở đâu? File MISA mẫu không
+  có dòng nào cho phí này. Hiện `bank_fee_*` để `enabled: false`.
+* **Q20** — Bút toán chi tiền `331 / 1121` căn cứ Debit Note có cần app xuất
+  không, hay kế toán làm riêng?
+* **Q21** — Số chứng từ bắt đầu mỗi đợt import: nhập tay hay app nhớ số cuối?
+* **Q22** — Mã `Đối tượng Có` cho nhà cung cấp mới lấy từ đâu?
 * **Q14 / Q15** — Chạy một máy hay thư mục mạng; phiên bản Windows.
 
 ---

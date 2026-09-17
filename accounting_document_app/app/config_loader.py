@@ -84,6 +84,8 @@ class ClassifierTypeRule:
     strong: tuple[str, ...]
     must_not_have: tuple[str, ...]
     min_score: int
+    #: Chuỗi báo hiệu một chứng từ MỚI bắt đầu tại trang này (tách PDF gộp).
+    page_start_markers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,7 @@ def load_classifier_config(path: Path | None = None) -> ClassifierConfig:
                 strong=tuple(cfg.get("strong") or ()),
                 must_not_have=tuple(cfg.get("must_not_have") or ()),
                 min_score=int(cfg.get("min_score", 1)),
+                page_start_markers=tuple(cfg.get("page_start_markers") or ()),
             )
         )
     return ClassifierConfig(
