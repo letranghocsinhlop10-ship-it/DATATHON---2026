@@ -181,6 +181,43 @@ Rút ra từ phân tích file mẫu (`docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md`):
 
 ---
 
+## Kiểm thử ở quy mô lớn (Phase 6)
+
+Repo chỉ có 3 PDF thật, không có 300 file thật của công ty. Để vẫn kiểm tra
+được hành vi ở quy mô thật, `tests/test_stress_synthetic.py` **sinh PDF tổng
+hợp** bằng PyMuPDF — đúng cấu trúc/nhãn/regex đã reverse-engineer từ 3 file
+mẫu thật, nhưng số liệu hoàn toàn giả — rồi chạy nguyên vẹn pipeline
+scan → match → export → organize qua đó, không phải qua script thủ công.
+
+Hai cấp độ, cùng chạy qua `pytest`:
+
+* `TestQuyMoNho` — ~30 file, chạy mặc định (smoke nhanh, không cần biến môi
+  trường nào).
+* `TestQuyMo300File` — đúng 300 file, chỉ chạy khi đặt
+  `ACCOUNTING_STRESS_TEST=1`:
+
+  ```bash
+  ACCOUNTING_STRESS_TEST=1 pytest tests/test_stress_synthetic.py -v
+  ```
+
+  Kết quả đã xác nhận: 300 file → 99 bộ hồ sơ (95 VALID, 3 MISSING_VAT,
+  1 DUPLICATE_META — phát sinh tự nhiên từ một file trùng byte-for-byte,
+  đúng thiết kế "byte-duplicate cũng là business-duplicate"). 4 file không
+  liên quan (không khớp được tham chiếu nào) không bị gán bừa vào bộ hồ sơ
+  nào — đúng nguyên tắc "không đoán, không tự ghép". Toàn bộ 300 file PDF
+  được copy đúng vị trí trong `OUTPUT/`, không file nào bị mất. Tổng thời
+  gian pipeline (scan + match + export + organize) ~4 giây — không có dấu
+  hiệu độ phức tạp bậc hai (O(n²)) ở quy mô này.
+
+  Lưu ý riêng khi viết bộ sinh dữ liệu: font Base14 mặc định của
+  `page.insert_text()` trong PyMuPDF không có glyph tiếng Việt có dấu (âm
+  thầm thay bằng `·`), làm hỏng mọi regex trích xuất của các file debit
+  note tổng hợp. Đây là lỗi của *bộ sinh dữ liệu kiểm thử*, không phải lỗi
+  của ứng dụng — khắc phục bằng cách chỉ định tường minh
+  `fontname="dejavu", fontfile=".../DejaVuSans.ttf"` cho mọi lệnh chèn chữ.
+
+---
+
 ## Lộ trình
 
 | Phase | Nội dung | Trạng thái |
@@ -193,10 +230,7 @@ Rút ra từ phân tích file mẫu (`docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md`):
 | 3 | Reference matcher, dossier builder/validator, SQLite | ✅ |
 | 4 | Giao diện PySide6 | ✅ |
 | 5 | Excel exporter, PDF organizer | ✅ |
-| 3 | Reference matcher, dossier builder/validator, SQLite | ⏳ |
-| 4 | Giao diện PySide6 | ⏳ |
-| 5 | Excel exporter, PDF organizer, báo cáo lỗi | ⏳ |
-| 6 | Kiểm thử trên 300 file thật | ⏳ |
+| 6 | Kiểm thử ở quy mô ~300 file | ✅ `tests/test_stress_synthetic.py` |
 | 7 | Đóng gói EXE bằng PyInstaller | ⏳ |
 
 ---
