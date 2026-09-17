@@ -1,0 +1,276 @@
+# Luật TRÍCH XUẤT trường dữ liệu. Toàn bộ regex nằm ở đây, KHÔNG nằm trong code.
+#
+# strategy:
+#   flat_regex   chạy trên text đã gộp mọi khoảng trắng/xuống dòng thành 1 space
+#                -> dùng khi giá trị có thể bị PDF ngắt dòng giữa chừng
+#   text_regex   chạy trên text theo thứ tự block (giữ nguyên xuống dòng)
+#                -> dùng khi cần neo đầu dòng/cuối dòng
+#   label_right  tìm ô chữ của nhãn rồi lấy chữ bên phải cùng dòng
+#                -> BẮT BUỘC cho hoá đơn GTGT VPBank vì thứ tự text bị đảo
+#
+# type: text | reference | tax_code | money | percent | date_dmy | date_vi | date_compact
+# on_multiple: first | last | ambiguous   (ambiguous -> báo lỗi, không tự chọn)
+
+version: 1
+
+money_format:
+  # KHAI BÁO CỨNG cho từng loại chứng từ. Cấm auto-detect: chuỗi "2.000" có
+  # thể là hai nghìn hoặc hai phẩy không tuỳ định dạng — đoán sai là sai
+  # 1000 lần trong sổ kế toán.
+  META_INVOICE:
+    thousands: "."
+    decimal: ","
+    currency_symbols: ["₫", "VND"]
+  VPBANK_DEBIT_NOTE:
+    thousands: ","
+    decimal: "."
+    currency_symbols: ["VND"]
+  VPBANK_VAT_INVOICE:
+    thousands: "."
+    decimal: ","
+    currency_symbols: ["VND"]
+
+merchant:
+  # Reference của Meta nằm ngay SAU một trong các từ khoá này trong phần
+  # diễn giải / nội dung thanh toán của chứng từ ngân hàng.
+  anchors: ["FACEBK", "FACEBOOK"]
+  # Đuôi mô tả đứng sau reference. Đây là KỲ VỌNG ĐƯỢC KIỂM TRA, không phải
+  # điều kiện bắt buộc: regex không neo vào đuôi này, nhưng file nào lệch sẽ
+  # được đánh dấu UNEXPECTED_MERCHANT_SUFFIX để người dùng xem lại.
+  expected_suffix: "DUBLIN IE"
+
+types:
+
+  # ==================================================================
+  META_INVOICE:
+    default_strategy: flat_regex
+    rules:
+      - id: meta.reference_number
+        field: reference_number
+        pattern: 'Số tham chiếu:\s*([A-Z0-9]{8,16})\b'
+        type: reference
+        required: true
+        on_multiple: ambiguous
+
+      - id: meta.account_id
+        field: account_id
+        pattern: 'ID tài khoản:\s*(\d{8,24})'
+        type: text
+
+      - id: meta.transaction_id
+        field: transaction_id
+        pattern: 'ID giao dịch\s+(\d+-\d+)'
+        type: text
+
+      - id: meta.invoice_number
+        field: invoice_number
+        pattern: 'Hóa đơn\s*#\s*([A-Z]+-[A-Z0-9-]+)'
+        type: text
+
+      - id: meta.invoice_date
+        field: document_date
+        pattern: 'Ngày lập hóa đơn/thanh toán\s+(\d{1,2}:\d{2}\s+\d{1,2}\s*tháng\s*\d{1,2},?\s*\d{4})'
+        type: date_vi
+        required: true
+
+      - id: meta.payment_method
+        field: payment_method
+        pattern: 'Phương thức thanh toán\s+([A-Za-z ]+?)\s*[·•*]'
+        type: text
+
+      - id: meta.card_last4
+        field: card_last4
+        pattern: '(?:MasterCard|Visa|JCB|American Express)[^\d]{0,15}(\d{4})\b'
+        type: text
+
+      - id: meta.subtotal
+        field: subtotal
+        pattern: 'Tổng phụ:\s*([\d.,]+)'
+        type: money
+        required: true
+
+      - id: meta.vat_amount
+        field: vat_amount
+        pattern: 'VAT:\s*([\d.,]+)\s*₫'
+        type: money
+
+      - id: meta.vat_rate
+        field: vat_rate
+        pattern: 'VAT:[^()]*\(Thuế suất:\s*(\d+(?:[.,]\d+)?)\s*%\)'
+        type: percent
+
+      - id: meta.total_amount
+        field: total_amount
+        pattern: 'Đã thanh toán\s+([\d.,]+)\s*₫'
+        type: money
+        required: true
+
+      - id: meta.seller_name
+        field: seller_name
+        pattern: '^(Meta Platforms[^\n]{0,60})$'
+        strategy: text_regex
+        flags: [MULTILINE]
+        type: text
+
+      - id: meta.company_name
+        field: company_name
+        pattern: '^(CÔNG TY[^\n]{0,80})$'
+        strategy: text_regex
+        flags: [MULTILINE]
+        type: text
+
+      - id: meta.tax_code
+        field: tax_code
+        # "Tax ID:" xuất hiện 2 lần: lần 1 của Meta, lần 2 của khách hàng.
+        pattern: 'Tax ID:\s*([\d][\d-]{6,20})'
+        occurrence: 2
+        type: tax_code
+
+      - id: meta.seller_tax_code
+        field: seller_tax_code
+        pattern: 'Tax ID:\s*([\d][\d-]{6,20})'
+        occurrence: 1
+        type: tax_code
+
+  # ==================================================================
+  VPBANK_DEBIT_NOTE:
+    default_strategy: flat_regex
+    rules:
+      - id: debit.transaction_date
+        field: transaction_date
+        pattern: 'Ngày/Transaction Date:\s*(\d{1,2}/\d{1,2}/\d{4})'
+        type: date_dmy
+        required: true
+
+      - id: debit.customer_name
+        field: company_name
+        # Tên khách hàng bị PDF ngắt dòng giữa chừng ("CONG TY CO" /
+        # "PHAN ABC XYZ") nên phải quét trên text đã gộp dòng, và dừng
+        # lại ở nhãn kế tiếp thay vì hết dòng.
+        pattern: 'Tên Khách hàng/Customer Name:\s*(.+?)\s*(?:Tên Ngân hàng|Địa chỉ|Mã Khách hàng|Số tài khoản|$)'
+        type: text
+
+      - id: debit.customer_id
+        field: customer_id
+        pattern: 'Mã Khách hàng/Customer ID:\s*(\d+)'
+        type: text
+
+      - id: debit.bank_account
+        field: bank_account
+        pattern: 'Số tài khoản/Account No:\s*(\d+)'
+        type: text
+
+      - id: debit.transaction_code
+        field: transaction_code
+        pattern: 'Mã giao dịch/Transaction code:\s*([A-Z0-9]{6,32})'
+        type: text
+        required: true
+
+      - id: debit.currency
+        field: currency
+        pattern: 'Loại tiền/Currency:\s*([A-Z]{3})'
+        type: text
+
+      - id: debit.total_amount
+        field: total_amount
+        pattern: 'Số tiền/Amount:\s*([\d.,]+)\s*[A-Z]{3}'
+        type: money
+        required: true
+
+      - id: debit.payment_detail
+        field: payment_detail
+        pattern: 'Diễn giải/Details:\s*(.+?)(?:\s*Phiếu này được in|$)'
+        type: text
+        required: true
+
+  # ==================================================================
+  VPBANK_VAT_INVOICE:
+    # Bố cục đảo: giá trị được VẼ trước nhãn. Bắt buộc dùng label_right.
+    default_strategy: label_right
+    rules:
+      - id: vat.invoice_serial
+        field: invoice_serial
+        label: "Ký hiệu (Serial):"
+        value_pattern: '^(?:\([^)]*\):)?\s*([A-Z0-9]{4,12})'
+        type: text
+        required: true
+
+      - id: vat.invoice_number
+        field: invoice_number
+        label: "Số (No.):"
+        value_pattern: '^(?:\([^)]*\):)?\s*(\d{4,12})'
+        type: text
+        required: true
+
+      - id: vat.invoice_date
+        field: document_date
+        label: "Ngày hóa đơn (Date):"
+        value_pattern: '(\d{1,2}/\d{1,2}/\d{4})'
+        type: date_dmy
+        required: true
+
+      - id: vat.seller_tax_code
+        field: seller_tax_code
+        label: "MST"
+        value_pattern: '(\d{10,14})'
+        type: tax_code
+
+      - id: vat.customer_name
+        field: company_name
+        label: "Tên khách hàng (Customer):"
+        value_pattern: '^(?:\([^)]*\):)?\s*(.+)$'
+        type: text
+
+      - id: vat.customer_id
+        field: customer_id
+        label: "Mã khách hàng (CIF):"
+        value_pattern: '(\d+)'
+        type: text
+
+      - id: vat.customer_tax_code
+        field: tax_code
+        label: "Mã số thuế"
+        value_pattern: '(\d{10,14})'
+        type: tax_code
+
+      - id: vat.reference_number
+        field: reference_number
+        label: "Số tham chiếu"
+        # Bắt CẢ CỤM, việc tách <mã GD>_<yyyymmdd> do extractor làm sau.
+        value_pattern: '([A-Z0-9]{6,32}_\d{8})'
+        type: text
+        required: true
+
+      - id: vat.subtotal
+        field: subtotal
+        label: "Cộng tiền hàng"
+        value_pattern: '([\d.,]+)\s*$'
+        type: money
+        required: true
+
+      - id: vat.vat_rate
+        field: vat_rate
+        label: "Thuế suất"
+        # Cùng dòng y còn có cặp nhãn "Tiền thuế GTGT" -> phải giới hạn.
+        value_pattern: '(\d{1,2}(?:[.,]\d+)?)\s*%'
+        type: percent
+
+      - id: vat.vat_amount
+        field: vat_amount
+        label: "Tiền thuế GTGT"
+        value_pattern: '([\d.,]+)\s*$'
+        type: money
+
+      - id: vat.total_amount
+        field: total_amount
+        label: "Tổng cộng tiền thanh toán"
+        value_pattern: '([\d.,]+)\s*$'
+        type: money
+        required: true
+
+      - id: vat.payment_detail
+        field: payment_detail
+        label: "Nội dung thanh toán"
+        value_pattern: '^(?:\([^)]*\):)?\s*(.+)$'
+        type: text
+        required: true

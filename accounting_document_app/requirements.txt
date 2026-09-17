@@ -1,0 +1,11 @@
+# Phase 2 — đọc PDF, phân loại, trích xuất
+PyMuPDF==1.24.10
+PyYAML==6.0.2
+
+# Phase 3+ (đã khai báo sẵn, chưa dùng ở Phase 2)
+# PySide6==6.7.3
+# pandas==2.2.3
+# openpyxl==3.1.5
+
+# Dev
+pytest==8.3.3

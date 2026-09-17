@@ -1,0 +1,24 @@
+Hóa đơn thuế cho Khach-Hang
+ID tài khoản: 2100000000000001
+Ngày lập hóa đơn/thanh toán
+15:10 1 tháng 8, 2026
+Phương thức thanh toán
+MasterCard ···· 1234
+Số tham chiếu: ABCD1234EF
+ID giao dịch
+28000000000000001-28000000000000002
+Loại sản phẩm
+Meta quảng cáo
+Đã thanh toán
+1.100.000 ₫
+Tổng phụ: 1.000.000 VND
+VAT: 100.000 ₫ (Thuế suất: 10%)
+Hệ thống đang tiến hành lập hóa đơn vì bạn đã đạt đến ngưỡng thanh toán 1.000.000 ₫ của
+mình.
+Chiến dịch
+Campaign_Mau_01
+Từ 00:00 30 tháng 7, 2026 đến 15:10 1 tháng 8, 2026
+500.000 ₫
+35-65_Advantage
+1.000 Số lần hiển thị
+500.000 ₫

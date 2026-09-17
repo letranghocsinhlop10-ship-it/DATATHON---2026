@@ -1,0 +1,32 @@
+# Cấu hình vận hành. Người dùng sửa được trong màn hình Settings.
+
+version: 1
+
+paths:
+  input_folder: ""          # thư mục chứa PDF đầu vào
+  output_folder: ""         # thư mục xuất hồ sơ đã sắp xếp
+  excel_folder: ""          # thư mục xuất file Excel
+  database: "database/accounting_app.db"
+  log_file: "logs/app.log"
+
+processing:
+  min_chars_per_page: 80    # dưới ngưỡng này coi là PDF scan -> NEEDS_OCR
+  ocr_enabled: false        # ba file mẫu đều có lớp text thật
+  ocr_engine: "none"        # none | tesseract | paddle
+  ocr_language: "vie"
+  max_workers: 4
+  force_rescan: false
+
+reference:
+  # Mẫu thật quan sát được: 10 ký tự [A-Z0-9]. Nới 8..16 để an toàn.
+  pattern: "^[A-Z0-9]{8,16}$"
+  strip_inner_whitespace: true
+
+validation:
+  max_date_gap_days: 7      # lệch ngày quá ngưỡng -> cảnh báo, không chặn
+  amount_chain_tolerance: 0 # debit = meta_total + fee_total, sai lệch cho phép (VND)
+
+logging:
+  level: "INFO"
+  max_bytes: 5242880
+  backup_count: 5

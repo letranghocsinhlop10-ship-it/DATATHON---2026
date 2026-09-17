@@ -1,0 +1,68 @@
+# Luật PHÂN LOẠI chứng từ — dựa trên NỘI DUNG, không bao giờ dựa trên tên file.
+#
+# Cơ chế chấm điểm:
+#   must_have_any   bắt buộc khớp ít nhất 1 (không khớp -> loại thẳng)
+#   must_not_have   khớp bất kỳ -> loại thẳng
+#   strong          mỗi mục khớp cộng 1 điểm
+#   min_score       điểm tối thiểu để được chấp nhận
+#
+# Nếu từ 2 loại trở lên cùng đạt -> UNKNOWN + CLASSIFY_AMBIGUOUS.
+# Hệ thống KHÔNG tự chọn loại có điểm cao hơn.
+#
+# Thêm ngân hàng / nhà cung cấp mới = thêm một khối ở đây, KHÔNG sửa code.
+
+version: 1
+
+# So khớp không phân biệt hoa thường; dấu tiếng Việt được giữ nguyên.
+case_sensitive: false
+
+types:
+
+  META_INVOICE:
+    description: "Hoá đơn quảng cáo Meta / Facebook Ads"
+    must_have_any:
+      - "Meta Platforms Ireland"
+      - "Meta quảng cáo"
+      - "Hóa đơn thuế cho"
+    strong:
+      - "Số tham chiếu:"
+      - "ID giao dịch"
+      - "ID tài khoản:"
+      - "FBADS-"
+      - "Phương thức thanh toán"
+    must_not_have:
+      - "PHIẾU GIAO DỊCH GHI NỢ"
+      - "Ký hiệu (Serial)"
+    min_score: 1
+
+  VPBANK_DEBIT_NOTE:
+    description: "Phiếu giao dịch ghi nợ VPBank"
+    must_have_any:
+      - "PHIẾU GIAO DỊCH GHI NỢ"
+      - "DEBIT NOTE"
+    strong:
+      - "Mã giao dịch/Transaction code"
+      - "Diễn giải/Details"
+      - "Tài khoản nợ"
+      - "Số tài khoản/Account No"
+    must_not_have:
+      - "Ký hiệu (Serial)"
+    min_score: 1
+
+  VPBANK_VAT_INVOICE:
+    description: "Hoá đơn GTGT phí dịch vụ ngân hàng VPBank"
+    # LƯU Ý: hoá đơn này KHÔNG chứa cụm "HÓA ĐƠN GIÁ TRỊ GIA TĂNG" hay
+    # "VAT INVOICE" — đã kiểm chứng trên file mẫu. Tuyệt đối không dùng hai
+    # cụm đó làm điều kiện bắt buộc.
+    must_have_any:
+      - "Ký hiệu (Serial)"
+      - "Bản thể hiện của hóa đơn điện tử"
+    strong:
+      - "Nội dung thanh toán (Payment detail)"
+      - "Cộng tiền hàng (Subtotal)"
+      - "Tổng cộng tiền thanh toán"
+      - "Ngân hàng TMCP Việt Nam Thịnh Vượng"
+      - "einvoice.vpbank.com.vn"
+    must_not_have:
+      - "PHIẾU GIAO DỊCH GHI NỢ"
+    min_score: 1

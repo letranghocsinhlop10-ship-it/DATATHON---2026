@@ -1,0 +1,27 @@
+# Chính sách kế toán — ứng dụng KHÔNG tự quyết định, chỉ làm theo cấu hình.
+# Các tài khoản dưới đây CHỈ LÀ VÍ DỤ, kế toán trưởng phải xác nhận.
+
+version: 1
+
+company:
+  name: ""
+  tax_code: ""              # dùng để đối chiếu TAX_CODE_MISMATCH
+
+accounts:
+  marketing_expense: "6417"   # chi phí quảng cáo
+  bank_fee_expense: "6427"    # phí dịch vụ ngân hàng
+  input_vat: "1331"           # thuế GTGT đầu vào được khấu trừ
+  bank: "1121"                # tiền gửi ngân hàng
+
+policy:
+  # Hoá đơn Meta ghi rõ: Meta đã đăng ký thuế tại VN và tự nộp FCT,
+  # bên mua KHÔNG khấu trừ/khấu lưu. Vì vậy mặc định tắt.
+  withhold_foreign_contractor_tax: false
+
+  # CHỜ XÁC NHẬN (Q7-bis): số VAT trên hoá đơn Meta có được kê khai khấu trừ
+  # vào TK 1331 không, hay hạch toán toàn bộ vào chi phí?
+  # true  -> tách 6417 / 1331
+  # false -> dồn toàn bộ tổng tiền vào 6417
+  deduct_meta_input_vat: true
+
+  deduct_bank_fee_input_vat: true

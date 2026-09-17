@@ -1,0 +1,28 @@
+PHIẾU GIAO DỊCH GHI NỢ/DEBIT NOTE
+Ngày/Transaction Date: 01/08/2026
+Tên Khách hàng/Customer Name: CONG TY CO
+PHAN ABC XYZ
+Tên Ngân hàng/Bank's Name: VPBANK
+Địa chỉ/Address: SO 1 DUONG MAU PHUONG
+MAU QUAN MAU
+Chi nhánh/Branch: VPBANK CHI NHANH MAU
+Mã Khách hàng/Customer ID: 20000001
+Địa chỉ/Address: SO 2, TOA NHA MAU,
+PHUONG MAU, THANH PHO HA NOI
+Số tài khoản/Account No: 600000001
+Chúng tôi xin thông báo đã ghi nợ tài khoản Quý Khách số tiền theo chi tiết sau/ We herely notify to you
+that we debited your account as the following information:
+Mã giao dịch/Transaction code: FT26000000000001
+Loại tiền/Currency: VND
+Tài khoản nợ/
+Debit Account
+600000001
+CONG TY CO PHAN ABC XYZ
+Số tiền/Amount: 1,122,000 VND
+MOT TRIEU MOT TRAM HAI MUOI HAI NGHIN VIET NAM DONG
+Số tài khoản có/
+Credit Account
+Diễn giải/Details: So the 1111xxxx1234 GD thanh toan
+tai FACEBK ABCD1234EF DUBLIN IE
+Phiếu này được in từ hệ thống ngân hàng điện tử của VPBank/This automated debit note is printed by
+internetbanking by VPBank.
