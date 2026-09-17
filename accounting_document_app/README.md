@@ -231,7 +231,47 @@ Hai cấp độ, cùng chạy qua `pytest`:
 | 4 | Giao diện PySide6 | ✅ |
 | 5 | Excel exporter, PDF organizer | ✅ |
 | 6 | Kiểm thử ở quy mô ~300 file | ✅ `tests/test_stress_synthetic.py` |
-| 7 | Đóng gói EXE bằng PyInstaller | ⏳ |
+| 7 | Đóng gói EXE bằng PyInstaller | ✅ cấu hình xong, xem "Đóng gói EXE" bên dưới |
+
+---
+
+## Đóng gói EXE (Phase 7)
+
+**Lưu ý quan trọng:** môi trường phát triển dùng để viết code này chạy trên
+Linux. PyInstaller **không cross-compile** — chỉ đóng gói được file thực thi
+cho đúng hệ điều hành nó đang chạy. Vì vậy repo này KHÔNG (và không thể)
+chứa sẵn một file `.exe` Windows; những gì Phase 7 giao là **cấu hình đóng
+gói đã được kiểm chứng**, để người dùng có máy Windows tự chạy.
+
+Đã kiểm chứng trên Linux (build thử ra file thực thi Linux, không phải
+`.exe`, chỉ để xác nhận cấu hình đúng — không có module nào bị thiếu, ứng
+dụng khởi động được, tự tạo `config/`, `logs/`, `database/` đúng vị trí và
+giữ nguyên qua nhiều lần chạy):
+
+* `accounting_app.spec` — cấu hình PyInstaller, đóng gói **onedir** (không
+  phải `--onefile`). Đây là lựa chọn bắt buộc, không phải tuỳ chọn: đường
+  dẫn mặc định của database SQLite và file log được tính tương đối theo vị
+  trí file `.py` đang chạy (`app/config_loader.py:DEFAULT_CONFIG_DIR`).
+  Với onedir, PyInstaller giữ nguyên thư mục cài đặt giữa các lần chạy nên
+  dữ liệu tồn tại lâu dài; với `--onefile`, PyInstaller giải nén ra một thư
+  mục tạm MỚI mỗi lần mở ứng dụng — dữ liệu sẽ biến mất mỗi khi đóng app.
+* `build.bat` — script cho Windows: cài `requirements.txt` +
+  `requirements-build.txt`, dọn `build/`/`dist/` cũ, chạy
+  `pyinstaller accounting_app.spec`.
+* `requirements-build.txt` — chỉ có `pyinstaller`, tách khỏi
+  `requirements.txt` vì không cần cho chạy dev/test thường ngày.
+
+Trên máy Windows có Python 3.12:
+
+```cmd
+build.bat
+```
+
+Kết quả: `dist\AccountingDocumentTool\AccountingDocumentTool.exe`. Copy
+**cả thư mục** `dist\AccountingDocumentTool` sang máy đích (không copy
+riêng file `.exe` — các thư viện và `config\` nằm trong `_internal\` cạnh
+nó). Vì đây là ứng dụng ngoại tuyến hoàn toàn, không cần cài thêm gì khác
+trên máy đích.
 
 ---
 

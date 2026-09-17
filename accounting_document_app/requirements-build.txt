@@ -1,0 +1,3 @@
+# Chỉ cần khi đóng gói thành .exe bằng PyInstaller (Phase 7).
+# Không cần cho chạy dev/test thường ngày — xem requirements.txt.
+pyinstaller==6.22.3
