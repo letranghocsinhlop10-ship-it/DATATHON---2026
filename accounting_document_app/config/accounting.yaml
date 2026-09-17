@@ -15,9 +15,10 @@ accounts:
   bank: "1121"                # tiền gửi ngân hàng
 
 suppliers:
-  # Đối tượng Có trên chứng từ MISA. File mẫu dùng MST Việt Nam của Meta.
+  # Q22 ĐÃ XÁC NHẬN: "Đối tượng Có" là MÃ SỐ THUẾ của nhà cung cấp.
+  # Thêm nhà cung cấp mới = thêm một khối ở đây, không sửa code.
   meta:
-    object_code: "9000000327"
+    object_code: "9000000327"          # MST Việt Nam của Meta
     name: "Meta Platforms Ireland Limited"
 
 policy:
@@ -31,10 +32,14 @@ policy:
   # 6417 / 331, toàn bộ nhóm cột thuế bỏ trống.
   deduct_meta_input_vat: false
 
-  # Phí ngân hàng KHÔNG xuất hiện trong file MISA mẫu -> chưa rõ hạch toán
-  # ở đâu. Tạm tắt, chờ kế toán xác nhận.
-  book_bank_fee: false
-  deduct_bank_fee_input_vat: false
+  # Q19 ĐÃ XÁC NHẬN: xuất bút toán phí ngân hàng theo đúng số tiền in trên
+  # hoá đơn của từng bộ hồ sơ.
+  book_bank_fee: true
+  deduct_bank_fee_input_vat: true
+
+  # Q20 ĐÃ XÁC NHẬN: KHÔNG xuất bút toán chi tiền 331/1121 căn cứ Debit Note.
+  # Debit Note chỉ dùng để ghép bộ và đối chiếu số tiền.
+  export_payment_entry: false
 
   # LUÔN lấy số thuế in trên hoá đơn, KHÔNG tự tính subtotal * thuế suất.
   # (File mẫu có 1/64 dòng lệch so với 10% — bằng chứng nhập tay có sai sót.)

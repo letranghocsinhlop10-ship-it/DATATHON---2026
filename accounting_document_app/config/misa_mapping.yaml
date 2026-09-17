@@ -61,27 +61,33 @@ lines:
       Thuế GTGT chi phí quảng cáo facebook cho ${parameters.cost_center_label}
       theo số hóa đơn ${meta.invoice_number} ngày ${meta.document_date|dd/mm/yyyy}
 
-  # CHỜ XÁC NHẬN: file mẫu KHÔNG có dòng nào cho phí ngân hàng VPBank.
-  # Tạm tắt để không tự ý sinh bút toán mà kế toán chưa duyệt.
+  # Q19 ĐÃ XÁC NHẬN: xuất đúng số tiền in trên hoá đơn phí ngân hàng của
+  # từng bộ hồ sơ. File MISA mẫu không có dòng nào cho phí này nên cặp tài
+  # khoản dưới đây là LỰA CHỌN MẶC ĐỊNH của app, kế toán sửa lại nếu cần:
+  #   - ghi Có 1121 vì tiền bị trừ thẳng khỏi tài khoản (căn cứ Debit Note),
+  #     khác Meta là công nợ 331
+  #   - thuế GTGT phí ngân hàng đưa vào 1331 vì VPBank xuất hoá đơn GTGT
+  #     điện tử hợp lệ mang MST công ty
+  # Đổi hai dòng này = sửa accounts trong accounting.yaml, không sửa code.
   - id: bank_fee_expense
-    enabled: false
+    enabled: true
     condition: "bank_vat.subtotal is not None"
     debit_account: "${accounts.bank_fee_expense}"
     credit_account: "${accounts.bank}"
-    amount: "bank_vat.subtotal"
+    amount: "bank_vat.subtotal"          # LẤY TỪ HOÁ ĐƠN, không tự tính
     description: >-
       Phí dịch vụ ngân hàng theo hóa đơn ${bank_vat.invoice_serial}
       số ${bank_vat.invoice_number} ngày ${bank_vat.document_date|dd/mm/yyyy}
 
   - id: bank_fee_vat
-    enabled: false
+    enabled: true
     condition: "bank_vat.vat_amount is not None and bank_vat.vat_amount > 0"
     debit_account: "${accounts.input_vat}"
     credit_account: "${accounts.bank}"
-    amount: "bank_vat.vat_amount"
+    amount: "bank_vat.vat_amount"        # LẤY TỪ HOÁ ĐƠN, không tự tính
     description: >-
       Thuế GTGT phí dịch vụ ngân hàng theo hóa đơn ${bank_vat.invoice_serial}
-      số ${bank_vat.invoice_number}
+      số ${bank_vat.invoice_number} ngày ${bank_vat.document_date|dd/mm/yyyy}
 
 # ------------------------------------------------------------------ 34 cột
 # source = null  -> cột để trống (đúng như file mẫu)
