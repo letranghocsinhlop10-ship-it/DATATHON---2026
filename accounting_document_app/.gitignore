@@ -1,0 +1,10 @@
+*.pdf
+ALL_DATA/
+OUTPUT/
+accounting_document_app/database/*.db
+accounting_document_app/logs/*.log
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
