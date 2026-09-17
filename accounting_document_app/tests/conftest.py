@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# Chạy Qt không cần màn hình thật — bắt buộc set TRƯỚC khi PySide6 được
+# import ở bất kỳ đâu (test UI hoặc chính app).
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 ROOT = Path(__file__).resolve().parent.parent
 for extra in (ROOT, ROOT / "tests", ROOT / "tests" / "fixtures"):

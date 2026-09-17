@@ -190,7 +190,13 @@ class Database:
         if isinstance(self.path, Path):
             self.path.parent.mkdir(parents=True, exist_ok=True)
 
-        self._conn = sqlite3.connect(str(self.path))
+        # check_same_thread=False: các bước SCAN/MATCH chạy trong QThread
+        # riêng (app/ui/workers.py) nhưng dùng chung một Database với
+        # MainWindow ở main thread. An toàn trong app này vì UI khoá nút bấm
+        # suốt lúc worker chạy (MainWindow._set_running) nên KHÔNG BAO GIỜ có
+        # hai thread cùng đụng DB một lúc — chỉ nới lỏng kiểm tra "cùng
+        # thread" của sqlite3, không tự thêm truy cập đồng thời thật sự.
+        self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         if self.path != ":memory:":

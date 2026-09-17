@@ -3,10 +3,10 @@
 Ứng dụng desktop Windows đọc, phân loại, ghép bộ chứng từ PDF chi phí
 Marketing và xuất dữ liệu Excel phục vụ hạch toán.
 
-**Trạng thái: PHASE 3 hoàn thành** — nhân xử lý chứng từ, ghép bộ hồ sơ và
-lưu trữ SQLite đã chạy và có test, kể cả trên 3 PDF thật (scan → phân loại →
-trích xuất → ghép → validate → lưu DB → đọc lại). Chưa có giao diện
-(Phase 4), chưa có Excel/PDF organizer (Phase 5).
+**Trạng thái: PHASE 4 hoàn thành** — giao diện PySide6 đã chạy, dựng được
+qua Qt thật (kiểm chứng offscreen, không chỉ đúng cú pháp) và đã lái được
+toàn bộ luồng SCAN → MATCH qua worker thread trên 3 PDF thật, kết quả hiện
+đúng lên bảng. Chưa có Excel/PDF organizer (Phase 5).
 
 ---
 
@@ -26,15 +26,24 @@ trích xuất → ghép → validate → lưu DB → đọc lại). Chưa có gi
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
-pytest                          # 157 test + doctest
+pytest                          # 290 test + doctest
 ```
 
-Chạy thêm bộ test trên **PDF thật** (không kèm trong repo):
+Chạy ứng dụng:
+
+```bash
+python main.py
+```
+
+Chạy thêm bộ test trên **PDF thật** (không kèm trong repo — repo công khai):
 
 ```bash
 set ACCOUNTING_SAMPLE_DIR=C:\KETOAN\MAU
-pytest tests/test_real_samples.py
+pytest tests/test_real_samples.py tests/test_ui_smoke.py
 ```
+
+Test GUI chạy trên Qt thật ở chế độ ``offscreen`` (không cần màn hình) —
+không phải chỉ kiểm tra cú pháp dựng widget.
 
 ---
 
@@ -49,12 +58,18 @@ app/
   matching/      reference_matcher · dossier_builder ·         (ghép bộ)
                  dossier_validator · candidate_suggester
   database/      Database (schema SQLite) · document_repository ·
-                 dossier_repository · settings_repository
+                 dossier_repository · settings_repository ·
+                 processing_run_repository
+  services/      scan_service · match_service       (điều phối pipeline)
+  ui/            main_window · dossier_detail_window · review_window ·
+                 document_preview · settings_window · workers (QThread) ·
+                 view_models (thuần, không Qt) · widgets/status_badge
   utils/         money · date · file · string · logging
   config_loader  nạp + kiểm tra YAML
 config/          toàn bộ LUẬT NGHIỆP VỤ (không có luật nào nằm trong code)
-tests/           313 test, fixture đã che số liệu
+tests/           293 test, fixture đã che số liệu
 docs/            tài liệu thiết kế Phase 1 + phân tích file mẫu + MISA
+main.py          điểm vào ứng dụng
 ```
 
 Chiều phụ thuộc hướng vào trong: `models` không import gì, `core`/`extractors`
@@ -71,6 +86,29 @@ Không sửa code sẵn có:
    `app/extractors/registry.py`.
 
 ---
+
+## Giao diện — điều phối, không chứa logic nghiệp vụ
+
+* `app/services/` ghép các module Phase 2–3 thành hai bước gọi được:
+  `ScanService.scan_folder()` và `MatchService.match_run()`. GUI, CLI hay
+  test đều gọi service này — không lặp logic điều phối ở nhiều nơi.
+* `app/ui/workers.py` bọc service bằng `QThread` để không block UI; huỷ là
+  **hợp tác** (`request_cancel()` chỉ bật cờ, dừng SAU file đang xử lý,
+  không kill thread giữa chừng).
+* `app/ui/view_models.py` thuần Python, không import PySide6 — chuyển
+  `Dossier`/`Document` thành dữ liệu hiển thị, test được không cần Qt.
+* `MainWindow` → `DossierDetailWindow` (double-click) → `ReviewWindow`
+  (chứng từ chưa ghép, gợi ý ghép tay) → `SettingsWindow` — đúng theo
+  wireframe §8 Phase 1. Ghép tay ở `ReviewWindow` luôn tạo dossier
+  `NEEDS_REVIEW` + `match_source=MANUAL`, không bao giờ tự thành `VALID`.
+
+**Một bug thread-safety thật đã bị bắt bởi test tích hợp GUI**: `sqlite3`
+mặc định cấm dùng chung connection giữa các thread; `ScanWorker` chạy trong
+`QThread` riêng nhưng dùng chung `Database` tạo ở main thread. Test lái
+đúng luồng bấm SCAN → chờ worker → bấm MATCH trên PDF thật đã phát hiện lỗi
+này ngay (`sqlite3.ProgrammingError`) — sửa bằng `check_same_thread=False`,
+an toàn vì UI khoá nút bấm suốt lúc worker chạy nên không bao giờ có hai
+thread cùng đụng DB một lúc.
 
 ## Ghép bộ hồ sơ — luật K1/K2 cho hoá đơn GTGT
 
@@ -126,6 +164,7 @@ Rút ra từ phân tích file mẫu (`docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md`):
 | 2 | Models, config, PDFReader, classifier, 3 extractor, test | ✅ |
 | 2b | Tách PDF gộp nhiều chứng từ + mapping MISA | ✅ |
 | 3 | Reference matcher, dossier builder/validator, SQLite | ✅ |
+| 4 | Giao diện PySide6 | ✅ |
 | 3 | Reference matcher, dossier builder/validator, SQLite | ⏳ |
 | 4 | Giao diện PySide6 | ⏳ |
 | 5 | Excel exporter, PDF organizer, báo cáo lỗi | ⏳ |

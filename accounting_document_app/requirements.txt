@@ -2,10 +2,14 @@
 PyMuPDF==1.24.10
 PyYAML==6.0.2
 
-# Phase 3+ (đã khai báo sẵn, chưa dùng ở Phase 2)
-# PySide6==6.7.3
+# Phase 4 — giao diện desktop
+PySide6==6.7.3
+
+# Phase 5 (khai báo trước, chưa dùng)
 # pandas==2.2.3
 # openpyxl==3.1.5
 
-# Dev
+# Dev / test
 pytest==8.3.3
+pytest-qt==4.4.0
+pytest-timeout==2.3.1
