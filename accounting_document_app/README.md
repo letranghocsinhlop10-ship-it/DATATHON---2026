@@ -3,9 +3,10 @@
 Ứng dụng desktop Windows đọc, phân loại, ghép bộ chứng từ PDF chi phí
 Marketing và xuất dữ liệu Excel phục vụ hạch toán.
 
-**Trạng thái: PHASE 2 hoàn thành** — nhân xử lý chứng từ (đọc PDF, phân loại,
-trích xuất) đã chạy và có test. Chưa có giao diện, chưa có database, chưa có
-ghép bộ hồ sơ (Phase 3–5).
+**Trạng thái: PHASE 3 hoàn thành** — nhân xử lý chứng từ, ghép bộ hồ sơ và
+lưu trữ SQLite đã chạy và có test, kể cả trên 3 PDF thật (scan → phân loại →
+trích xuất → ghép → validate → lưu DB → đọc lại). Chưa có giao diện
+(Phase 4), chưa có Excel/PDF organizer (Phase 5).
 
 ---
 
@@ -41,15 +42,19 @@ pytest tests/test_real_samples.py
 
 ```
 app/
-  models/        Document · ExtractedField · enums            (thuần dữ liệu)
-  core/          PDFReader · layout · classifier              (đọc & nhận dạng)
+  models/        Document · Dossier · ExtractedField · enums   (thuần dữ liệu)
+  core/          PDFReader · layout · classifier · voucher_splitter
                  text_normalizer · duplicate_detector
-  extractors/    rule_engine · 3 extractor · registry         (trích xuất)
+  extractors/    rule_engine · 3 extractor · registry          (trích xuất)
+  matching/      reference_matcher · dossier_builder ·         (ghép bộ)
+                 dossier_validator · candidate_suggester
+  database/      Database (schema SQLite) · document_repository ·
+                 dossier_repository · settings_repository
   utils/         money · date · file · string · logging
   config_loader  nạp + kiểm tra YAML
 config/          toàn bộ LUẬT NGHIỆP VỤ (không có luật nào nằm trong code)
-tests/           157 test, fixture đã che số liệu
-docs/            tài liệu thiết kế Phase 1 + phân tích file mẫu
+tests/           313 test, fixture đã che số liệu
+docs/            tài liệu thiết kế Phase 1 + phân tích file mẫu + MISA
 ```
 
 Chiều phụ thuộc hướng vào trong: `models` không import gì, `core`/`extractors`
@@ -66,6 +71,22 @@ Không sửa code sẵn có:
    `app/extractors/registry.py`.
 
 ---
+
+## Ghép bộ hồ sơ — luật K1/K2 cho hoá đơn GTGT
+
+Ghép bằng SO SÁNH CHUỖI TUYỆT ĐỐI duy nhất (`==`), không fuzzy, không AI:
+
+* **META ↔ DEBIT**: `normalize(meta.reference_number) == normalize(debit.meta_reference)`
+* **VAT** gắn vào bộ khi thoả ít nhất một trong hai khoá:
+  * K1: `vat.bank_transaction_code == debit.transaction_code` (tách từ
+    chính `Số tham chiếu` của hoá đơn VPBank)
+  * K2: `vat.meta_reference == meta.reference_number` (khoá chính — đã
+    kiểm chứng trên 3 file mẫu, khớp 100%)
+* K1 và K2 **mâu thuẫn nhau** (trỏ hai bộ khác nhau) ⇒ `VAT_KEY_CONFLICT`,
+  ép về `NEEDS_REVIEW` dù đủ ba chứng từ — không bao giờ tự chọn.
+* `CandidateSuggester` chỉ **gợi ý** ghép tay bằng tín hiệu phụ (cùng thẻ,
+  cùng ngày, cùng tiền) — không có đường code nào để gợi ý tự trở thành
+  liên kết đã ghép.
 
 ## Ba đặc điểm của chứng từ thật mà code phải xử lý
 
@@ -104,6 +125,7 @@ Rút ra từ phân tích file mẫu (`docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md`):
 | 1c | Phân tích file MISA thật | ✅ `docs/PHASE1_ADDENDUM_MISA_TEMPLATE.md` |
 | 2 | Models, config, PDFReader, classifier, 3 extractor, test | ✅ |
 | 2b | Tách PDF gộp nhiều chứng từ + mapping MISA | ✅ |
+| 3 | Reference matcher, dossier builder/validator, SQLite | ✅ |
 | 3 | Reference matcher, dossier builder/validator, SQLite | ⏳ |
 | 4 | Giao diện PySide6 | ⏳ |
 | 5 | Excel exporter, PDF organizer, báo cáo lỗi | ⏳ |
