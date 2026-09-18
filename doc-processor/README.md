@@ -1,6 +1,6 @@
 # Công cụ xử lý bộ chứng từ kế toán (Facebook Bill / Hóa đơn VAT / Giấy báo nợ NH)
 
-Tool tự động: nhận diện loại chứng từ từ PDF (không cần đổi tên file), trích xuất dữ liệu, ghép 3 loại chứng từ theo **số tham chiếu**, đối chiếu chéo, kiểm tra hợp lệ, phân loại vào thư mục OUTPUT, và xuất 2 file Excel (bảng nhập MISA + báo cáo đối chiếu) — qua một Web UI đơn giản.
+Tool tự động: quét thư mục lộn xộn và ZIP lồng nhau, nhận diện loại chứng từ từ PDF (không cần đổi tên file), trích xuất dữ liệu, ghép 3 loại chứng từ theo **số tham chiếu**, đối chiếu chéo, kiểm tra hợp lệ, phân loại vào thư mục OUTPUT, và xuất 3 file Excel (dữ liệu trích xuất + bảng nhập MISA + báo cáo đối chiếu) — qua một Web UI đơn giản.
 
 > Kế hoạch triển khai đầy đủ (kiến trúc, data model, các quyết định thiết kế) nằm trong lịch sử trao đổi lúc lập plan; tài liệu này chỉ tập trung vào cách cài đặt/vận hành.
 
@@ -33,11 +33,11 @@ uvicorn app.main:app --reload
 
 Mở http://127.0.0.1:8000/. Giao diện:
 
-1. **Nhập file** — kéo-thả hoặc bấm "chọn file" để chọn nhiều file `.pdf` / `.zip` / `.xlsx` / `.xls` cùng lúc, rồi bấm **Tải file lên**. Tool tự nhận diện loại chứng từ qua nội dung, **không cần** đặt tên hay sắp xếp file trước. File `.zip` (hóa đơn điện tử PDF+XML nén sẵn) được tự động giải nén; file `.xlsx`/`.xls` được hiểu là **danh sách số tham chiếu cần đối chiếu** (xem mục 4). Sau khi tải lên, ô "Input Folder" tự điền — không cần biết đường dẫn thật trên server.
+1. **Nhập file** — kéo-thả hoặc bấm "chọn file" để chọn nhiều file `.pdf` / `.zip` / `.xlsx` / `.xls` cùng lúc, rồi bấm **Tải file lên**. Tool tự nhận diện loại chứng từ qua nội dung, **không cần** đặt tên hay sắp xếp file trước. PDF được tìm đệ quy trong mọi thư mục con; ZIP và ZIP lồng nhau được tự động giải nén. File `.xlsx`/`.xls` được hiểu là **danh sách số tham chiếu cần đối chiếu** (xem mục 4). Sau khi tải lên, ô "Input Folder" tự điền — không cần biết đường dẫn thật trên server.
    - Nếu bạn đang chạy tool ngay trên máy có sẵn thư mục dữ liệu, có thể bỏ qua bước upload và mở phần "Hoặc nhập đường dẫn thư mục có sẵn trên máy chủ" để gõ trực tiếp đường dẫn (ví dụ `INPUT`) — cách này cũng tự động giải nén mọi file `.zip` tìm thấy trong thư mục.
 2. Bấm **Process Documents** — progress bar cập nhật theo thời gian thực.
 3. Xem **Summary** (Total files / Complete sets / Incomplete / Valid / Errors / Duplicates) và bảng **Preview** (Reference | Status | Issue | Amount | Folder).
-4. **Export MISA Excel** / **Export Reconciliation Report** để tải 2 file `.xlsx`. **View Errors** để lọc riêng các bộ có vấn đề. **Open Output Folder** cố gắng mở trình quản lý file của máy đang chạy server (chỉ có tác dụng khi chạy local); nếu không mở được, đường dẫn tuyệt đối sẽ hiển thị để copy thủ công.
+4. **Export Extracted Data** tải dữ liệu thô theo từng PDF; **Export MISA Excel** tải bảng tổng hợp để nhập MISA; **Export Reconciliation Report** tải báo cáo đối chiếu. **View Errors** lọc riêng các bộ có vấn đề. **Open Output Folder** cố gắng mở trình quản lý file của máy đang chạy server (chỉ có tác dụng khi chạy local); nếu không mở được, đường dẫn tuyệt đối sẽ hiển thị để copy thủ công.
 
 ## 3. Chạy không cần UI (script/CI)
 
@@ -59,7 +59,7 @@ INPUT/
 └── *.xlsx|*.xls  # (tuỳ chọn) danh sách số tham chiếu cần đối chiếu — xem bên dưới
 
 OUTPUT/
-├── 01_VALID/<reference>/{01_Facebook.pdf, 02_VAT_Invoice.pdf(+.xml), 03_Bank_Debit.pdf}
+├── 01_VALID/<reference>/{<reference>_01_Facebook.pdf, <reference>_02_VAT_Invoice.pdf(+.xml), <reference>_03_Bank_Debit.pdf}
 ├── 02_MISSING_REFERENCE/
 ├── 03_MISSING_TAX_CODE/
 ├── 04_PAYMENT_METHOD_ERROR/
@@ -69,6 +69,7 @@ OUTPUT/
 ├── 08_OTHER_ERROR/<reference>/{file gốc, ERROR_REASON.txt}
 ├── 09_MISSING_ALL_DOCUMENTS/<reference>/{MISSING_01/02/03_*.txt}   # có trong danh sách Excel nhưng không tìm thấy PDF nào
 ├── misa_import.xlsx
+├── extracted_data.xlsx            # một dòng cho mỗi PDF đã đọc, phục vụ kiểm tra dữ liệu trích xuất
 ├── reconciliation_report.xlsx      # có thêm sheet "Reference List Check" nếu có nộp file Excel danh sách
 └── .manifest/state.json        # sổ theo dõi nội bộ để chạy lại không tạo trùng file/folder
 ```
