@@ -33,10 +33,10 @@ def test_complete_valid_set_creates_three_files(tmp_path):
     organize_all(sets, output_dir)
 
     ref_folder = output_dir / "01_VALID" / "OKREF001"
-    assert (ref_folder / "01_Facebook.pdf").exists()
-    assert (ref_folder / "02_VAT_Invoice.pdf").exists()
-    assert (ref_folder / "02_VAT_Invoice.xml").exists()
-    assert (ref_folder / "03_Bank_Debit.pdf").exists()
+    assert (ref_folder / "OKREF001_01_Facebook.pdf").exists()
+    assert (ref_folder / "OKREF001_02_VAT_Invoice.pdf").exists()
+    assert (ref_folder / "OKREF001_02_VAT_Invoice.xml").exists()
+    assert (ref_folder / "OKREF001_03_Bank_Debit.pdf").exists()
 
 
 def test_incomplete_set_writes_missing_marker(tmp_path):
@@ -55,8 +55,8 @@ def test_incomplete_set_writes_missing_marker(tmp_path):
     organize_all(sets, output_dir)
 
     ref_folder = output_dir / "06_INCOMPLETE_DOCUMENT" / "INCREF002"
-    assert (ref_folder / "01_Facebook.pdf").exists()
-    assert (ref_folder / "02_VAT_Invoice.pdf").exists()
+    assert (ref_folder / "INCREF002_01_Facebook.pdf").exists()
+    assert (ref_folder / "INCREF002_02_VAT_Invoice.pdf").exists()
     assert (ref_folder / "MISSING_03_Bank_Debit.txt").exists()
 
 
@@ -69,8 +69,8 @@ def test_duplicate_set_keeps_both_copies(tmp_path):
     organize_all(sets, output_dir)
 
     ref_folder = output_dir / "07_DUPLICATE" / "DUPREF003"
-    assert (ref_folder / "01_Facebook.pdf").exists()
-    assert (ref_folder / "DUPLICATE_01_Facebook_2.pdf").exists()
+    assert (ref_folder / "DUPREF003_01_Facebook.pdf").exists()
+    assert (ref_folder / "DUPREF003_DUPLICATE_01_Facebook_2.pdf").exists()
 
 
 def test_error_file_lands_in_other_error_with_reason(tmp_path):
