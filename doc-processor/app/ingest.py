@@ -148,7 +148,9 @@ def discover_pdf_files(input_dir: str | Path) -> list[tuple[str, Optional[str]]]
     roles = get_settings().get("input_roles", ["facebook", "vat", "bank"])
 
     found: list[tuple[str, Optional[str]]] = []
-    for pdf_path in sorted(input_dir.rglob("*.pdf")):
+    for pdf_path in sorted(
+        p for p in input_dir.rglob("*") if p.is_file() and p.suffix.lower() == ".pdf"
+    ):
         role = next((r for r in roles if r in pdf_path.relative_to(input_dir).parts), None)
         found.append((str(pdf_path), role))
     return found
