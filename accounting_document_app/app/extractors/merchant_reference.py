@@ -94,7 +94,9 @@ def extract_merchant_reference(
 
     text = flatten_whitespace(str(payment_detail.value))
     anchors = "|".join(re.escape(a) for a in merchant.anchors)
-    pattern = re.compile(rf"\b(?:{anchors})\s+([A-Za-z0-9]{{6,24}})\b")
+    # Một số sao kê chèn dấu '*' giữa anchor và reference (vd. "FACEBK
+    # *ABCD1234EF") — cho phép khoảng trắng/dấu '*' tuỳ ý giữa hai bên.
+    pattern = re.compile(rf"\b(?:{anchors})[\s*]+([A-Za-z0-9]{{6,24}})\b")
 
     matches = list(pattern.finditer(text))
     if not matches:

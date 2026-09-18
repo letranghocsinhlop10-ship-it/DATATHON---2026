@@ -20,9 +20,21 @@ from PySide6.QtCore import QThread, Signal
 
 from app.core.zip_extractor import extract_pdfs_from_zips
 from app.services.match_service import MatchResult, MatchService
+from app.services.payment_group_service import PaymentGroupService
+from app.services.prepare_data_service import PrepareDataService
 from app.services.scan_service import ScanProgress, ScanResult, ScanService
 
-__all__ = ["ScanWorker", "MatchWorker", "OrganizeWorker", "ExportWorker", "ZipExtractWorker"]
+__all__ = [
+    "ScanWorker",
+    "MatchWorker",
+    "OrganizeWorker",
+    "ExportWorker",
+    "ZipExtractWorker",
+    "PrepareDataWorker",
+    "PaymentGroupMatchWorker",
+    "PaymentGroupOrganizeWorker",
+    "PaymentGroupExportWorker",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -194,4 +206,120 @@ class ExportWorker(QThread):
             self.finished_ok.emit(result)
         except Exception as exc:  # noqa: BLE001
             logger.exception("ExportWorker lỗi không lường trước")
+            self.failed.emit(str(exc))
+
+
+class PrepareDataWorker(QThread):
+    """Chạy ``PrepareDataService.prepare`` (§L bước 1-6) trong luồng riêng.
+
+    Signals:
+        progress: Phát nhiều lần qua từng bước con, mang ``PrepareProgress``.
+        finished_ok: Phát khi xong, mang ``PrepareResult``.
+        failed: Phát khi có lỗi không lường trước.
+    """
+
+    progress = Signal(object)
+    finished_ok = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, service: PrepareDataService, source_folder: Path | str, run_id: int | None, parent=None) -> None:
+        super().__init__(parent)
+        self._service = service
+        self._source_folder = source_folder
+        self._run_id = run_id
+        self._cancel_event = threading.Event()
+
+    def request_cancel(self) -> None:
+        logger.info("Người dùng yêu cầu huỷ Chuẩn bị dữ liệu")
+        self._cancel_event.set()
+
+    def run(self) -> None:  # noqa: D102 - override QThread.run
+        try:
+            result = self._service.prepare(
+                self._source_folder,
+                run_id=self._run_id,
+                on_progress=lambda p: self.progress.emit(p),
+                should_cancel=self._cancel_event.is_set,
+            )
+            self.finished_ok.emit(result)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("PrepareDataWorker lỗi không lường trước")
+            self.failed.emit(str(exc))
+
+
+class PaymentGroupMatchWorker(QThread):
+    """Chạy ``PaymentGroupService.match_run`` trong luồng riêng.
+
+    Signals:
+        finished_ok: Phát khi xong, mang ``PaymentGroupMatchResult``.
+        failed: Phát khi có lỗi không lường trước.
+    """
+
+    finished_ok = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, service: PaymentGroupService, run_id: int, bank_transactions, parent=None) -> None:
+        super().__init__(parent)
+        self._service = service
+        self._run_id = run_id
+        self._bank_transactions = bank_transactions
+
+    def run(self) -> None:  # noqa: D102 - override QThread.run
+        try:
+            result = self._service.match_run(self._run_id, self._bank_transactions)
+            self.finished_ok.emit(result)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("PaymentGroupMatchWorker lỗi không lường trước")
+            self.failed.emit(str(exc))
+
+
+class PaymentGroupOrganizeWorker(QThread):
+    """Chạy ``PaymentGroupService.organize`` trong luồng riêng.
+
+    Signals:
+        finished_ok: Phát khi xong, mang ``PaymentGroupOrganizeResult``.
+        failed: Phát khi có lỗi không lường trước.
+    """
+
+    finished_ok = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, service: PaymentGroupService, groups, output_root: Path | str, parent=None) -> None:
+        super().__init__(parent)
+        self._service = service
+        self._groups = groups
+        self._output_root = output_root
+
+    def run(self) -> None:  # noqa: D102 - override QThread.run
+        try:
+            result = self._service.organize(self._groups, self._output_root)
+            self.finished_ok.emit(result)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("PaymentGroupOrganizeWorker lỗi không lường trước")
+            self.failed.emit(str(exc))
+
+
+class PaymentGroupExportWorker(QThread):
+    """Chạy ``PaymentGroupService.export`` trong luồng riêng.
+
+    Signals:
+        finished_ok: Phát khi xong, mang đường dẫn file ``.xlsx``.
+        failed: Phát khi có lỗi không lường trước.
+    """
+
+    finished_ok = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, service: PaymentGroupService, groups, output_path: Path | str, parent=None) -> None:
+        super().__init__(parent)
+        self._service = service
+        self._groups = groups
+        self._output_path = output_path
+
+    def run(self) -> None:  # noqa: D102 - override QThread.run
+        try:
+            result = self._service.export(self._groups, self._output_path)
+            self.finished_ok.emit(result)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("PaymentGroupExportWorker lỗi không lường trước")
             self.failed.emit(str(exc))

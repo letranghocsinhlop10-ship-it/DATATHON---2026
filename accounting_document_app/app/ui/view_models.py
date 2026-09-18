@@ -10,7 +10,8 @@ from dataclasses import dataclass
 
 from app.models.document import Document
 from app.models.dossier import Dossier
-from app.models.enums import DossierStatus, Severity
+from app.models.enums import DossierStatus, PaymentGroupStatus, Severity
+from app.models.facebook_payment_group import FacebookPaymentGroup
 from app.utils.date_utils import format_display
 from app.utils.money_utils import format_vnd
 
@@ -20,11 +21,15 @@ __all__ = [
     "STATUS_COLORS",
     "DossierRow",
     "DocumentRow",
+    "PaymentGroupRow",
     "dossier_to_row",
     "document_to_row",
+    "payment_group_to_row",
     "status_color",
     "status_label",
     "presence_mark",
+    "payment_group_status_color",
+    "payment_group_status_label",
 ]
 
 
@@ -146,4 +151,61 @@ def document_to_row(document: Document) -> DocumentRow:
         total_amount=format_vnd(document.total_amount) or "—",
         document_date=format_display(document.document_date) or "—",
         status=document.processing_status.value,
+    )
+
+
+#: Nhãn tiếng Việt cho trạng thái payment group (§G/§L).
+PAYMENT_GROUP_STATUS_LABELS: dict[PaymentGroupStatus, str] = {
+    PaymentGroupStatus.MATCHED_HIGH: "KHỚP CAO",
+    PaymentGroupStatus.MATCHED: "ĐÃ KHỚP",
+    PaymentGroupStatus.NEEDS_REVIEW: "CẦN KIỂM TRA",
+    PaymentGroupStatus.UNMATCHED: "CHƯA KHỚP",
+}
+
+#: Màu tô theo trạng thái payment group — xanh=khớp cao, xanh nhạt=đã khớp,
+#: vàng=cần kiểm tra, đỏ=chưa khớp.
+PAYMENT_GROUP_STATUS_COLORS: dict[PaymentGroupStatus, str] = {
+    PaymentGroupStatus.MATCHED_HIGH: StatusColor.GREEN,
+    PaymentGroupStatus.MATCHED: "#4285f4",
+    PaymentGroupStatus.NEEDS_REVIEW: StatusColor.YELLOW,
+}
+
+
+def payment_group_status_color(status: PaymentGroupStatus) -> str:
+    """Màu hex tương ứng một trạng thái payment group."""
+    return PAYMENT_GROUP_STATUS_COLORS.get(status, StatusColor.RED)
+
+
+def payment_group_status_label(status: PaymentGroupStatus) -> str:
+    """Nhãn tiếng Việt tương ứng một trạng thái payment group."""
+    return PAYMENT_GROUP_STATUS_LABELS.get(status, status.value)
+
+
+@dataclass(frozen=True)
+class PaymentGroupRow:
+    """Một dòng trong tab Facebook Payment Group (§L)."""
+
+    group_code: str
+    reference: str
+    transaction_date: str
+    bill_mark: str
+    main_mark: str
+    fee_count: str
+    statement_count: str
+    status_text: str
+    status_color: str
+
+
+def payment_group_to_row(group: FacebookPaymentGroup) -> PaymentGroupRow:
+    """Chuyển một ``FacebookPaymentGroup`` thành dòng bảng hiển thị."""
+    return PaymentGroupRow(
+        group_code=group.group_code,
+        reference=group.facebook_reference or "—",
+        transaction_date=format_display(group.transaction_date) or "—",
+        bill_mark=presence_mark(1 if group.facebook_bill else 0),
+        main_mark=presence_mark(1 if group.main_payment else 0),
+        fee_count=str(len(group.fees)) if group.fees else "—",
+        statement_count=str(len(group.statement_rows)) if group.statement_rows else "—",
+        status_text=payment_group_status_label(group.status),
+        status_color=payment_group_status_color(group.status),
     )

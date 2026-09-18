@@ -104,6 +104,7 @@ class ScanService:
         run_id: int | None = None,
         on_progress: Callable[[ScanProgress], None] | None = None,
         should_cancel: Callable[[], bool] | None = None,
+        exclude_paths: set[Path] | None = None,
     ) -> ScanResult:
         """Quét toàn bộ PDF trong thư mục, trích xuất và lưu vào DB.
 
@@ -116,11 +117,17 @@ class ScanService:
             should_cancel: Callback kiểm tra huỷ hợp tác (cooperative
                 cancellation) — trả về ``True`` để dừng SAU file đang xử lý,
                 không kill giữa chừng.
+            exclude_paths: File CẦN BỎ QUA (không phải lỗi, không phải trùng
+                — chỉ đơn giản là không quét). Dùng khi một bước tiền xử lý
+                khác (vd. ``DebitAdviceSplitter``) đã tách file gốc nhiều
+                trang thành các file vật lý riêng và cần tránh quét lại
+                nguyên file gốc, sinh chứng từ trùng với các trang đã tách.
 
         Returns:
             ``ScanResult`` — toàn bộ chứng từ đã lưu (đã có ``document_id``).
         """
-        paths = list(iter_pdf_files(folder))
+        excluded = {Path(p).resolve() for p in (exclude_paths or ())}
+        paths = [p for p in iter_pdf_files(folder) if p.resolve() not in excluded]
         total = len(paths)
         duplicate_detector = DuplicateDetector()
         # file_hash -> document_id của từng segment của file GỐC (segment_index

@@ -21,6 +21,8 @@ class TestNapCauHinhThat:
             DocumentType.META_INVOICE,
             DocumentType.VPBANK_DEBIT_NOTE,
             DocumentType.VPBANK_VAT_INVOICE,
+            DocumentType.VIETINBANK_DEBIT_ADVICE,
+            DocumentType.BANK_STATEMENT,
         }
 
     def test_moi_loai_deu_co_dinh_dang_tien(self, extraction_config):

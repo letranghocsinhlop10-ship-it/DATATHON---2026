@@ -191,6 +191,124 @@ Ghép bằng SO SÁNH CHUỖI TUYỆT ĐỐI duy nhất (`==`), không fuzzy, kh
   cùng ngày, cùng tiền) — không có đường code nào để gợi ý tự trở thành
   liên kết đã ghép.
 
+## Bộ chứng từ Facebook Payment Group (ZIP lộn xộn -> MATCH -> ORGANIZE -> EXPORT)
+
+Bên cạnh luồng dossier META/DEBIT/VAT gốc ở trên, có một luồng THỨ HAI,
+**độc lập**, xử lý nguồn dữ liệu lộn xộn hơn: ZIP hoá đơn, PDF Facebook Bill
+rời, phiếu giao dịch VPBank, **sao kê VPBank nhiều giao dịch**, và **Giấy
+báo nợ VietinBank nhiều trang** (một file có thể là hàng chục giao dịch gộp
+lại). Hai luồng dùng chung `run_id`/`Document` đã SCAN nhưng có matching
+engine, DB, organizer và Excel export RIÊNG — không đụng vào luồng gốc.
+
+### Quy trình một nút bấm
+
+`app/services/prepare_data_service.py:PrepareDataService.prepare()` gộp 6
+bước thành một lượt chạy (nút **"📂 Chuẩn bị dữ liệu"** trên GUI):
+
+1. `app/core/zip_extractor.py:extract_pdfs_from_zips()` — ZIP -> `ALL_DATA` (đã có từ trước).
+2. `zip_extractor.py:collect_loose_pdfs()` — PDF rời nằm **trực tiếp** cạnh
+   các file ZIP trong thư mục nguồn (không qua ZIP nào) cũng được gom vào
+   `ALL_DATA`, cùng cơ chế chống trùng CRC32 như ZIP. **Cố ý không đệ quy**
+   vào các thư mục con kiểu `data_1/`, `data_2/` — coi đó là dữ liệu riêng
+   của người dùng, không tự động nuốt vào.
+3. `app/core/debit_advice_splitter.py:DebitAdviceSplitter` — dò từng TRANG
+   của mọi PDF trong `ALL_DATA`, chỉ tách trang nào **vừa có nhãn** ("GIẤY
+   BÁO NỢ"/"Debit Advice") **vừa có field chính** (dùng lại đúng
+   `DocumentClassifier`/`document_rules.yaml`, không luật riêng thứ hai) —
+   copy VẬT LÝ (`pymupdf.insert_pdf`, không render lại) từng trang hợp lệ
+   thành một PDF một trang trong `ALL_DATA/_SPLIT_DEBIT_ADVICE/`. File gốc
+   nhiều trang giữ nguyên, không đụng tới.
+4. `app/core/bank_statement_parser.py:BankStatementParser` — file nào được
+   `DocumentClassifier` xếp loại `BANK_STATEMENT` (khác hẳn 5 loại kia: một
+   file sinh ra NHIỀU `BankTransaction`, không phải một `Document`) được
+   parse theo dòng bằng `row_pattern` khai báo trong
+   `config/bank_statement_rules.yaml`.
+5. `ScanService.scan_folder(ALL_DATA, exclude_paths=...)` — TÁI SỬ DỤNG
+   nguyên xi pipeline SCAN/classify/extract của Phase 2/4, chỉ loại trừ file
+   gốc đã được xử lý riêng ở bước 3-4 (tham số `exclude_paths` mới, thêm
+   thuần tuý additive, không đổi hành vi cũ khi không truyền).
+
+### Loại chứng từ mới
+
+* `DocumentType.VIETINBANK_DEBIT_ADVICE` — một trang Giấy báo nợ đã tách
+  vật lý, extractor riêng (`vietinbank_debit_advice_extractor.py`) tự suy
+  thêm `facebook_reference` và `payment_role` (`MAIN_PAYMENT`/`BANK_FEE`,
+  theo tiền tố "Phí GD..." ở đầu diễn giải) từ trường `remarks`.
+* `DocumentType.BANK_STATEMENT` — chỉ để ĐỊNH TUYẾN sang
+  `BankStatementParser`, không có extractor trong `ExtractorRegistry`.
+* `DocumentType.META_INVOICE` (đã có từ Phase 2) **chính là** "Facebook
+  Bill" — không tạo loại trùng lặp, vì đây là cùng một chứng từ thật, extractor
+  đã trích đủ `reference_number`/`transaction_id`/`card_last4`/`invoice_number`.
+
+### `normalize_facebook_reference()`
+
+`app/core/text_normalizer.py` — bóc + chuẩn hoá reference Facebook khỏi một
+đoạn diễn giải tự do, chấp nhận mọi cách viết thật đã gặp: `ABCD1234EF`,
+`FACEBK ABCD1234EF`, `FACEBK *ABCD1234EF`, hay cả câu
+`"GD thanh toan tai FACEBK *ABCD1234EF, the 2260"`. Nhân tiện phát hiện và
+sửa luôn một lỗi thật trong `extract_merchant_reference()` (Phase 3): regex
+cũ không tôn trọng dấu `*` chèn giữa `FACEBK` và reference trên một số sao
+kê, khiến trích xuất `meta_reference` của `VPBANK_DEBIT_NOTE` âm thầm thất
+bại với định dạng đó.
+
+### Matching engine — thang tín hiệu ưu tiên (`app/matching/payment_group_matcher.py`)
+
+KHÔNG dùng cơ chế K1/K2 (chỉ đúng cho 3 loại cố định) — đây là engine mới,
+theo đúng thứ tự ưu tiên: **facebook_reference tuyệt đối** > mã/số giao
+dịch tuyệt đối > 4 số cuối thẻ > ngày/giờ > số tiền > mô tả tương tự.
+
+* Reference khớp tuyệt đối **CHO PHÉP số tiền khác nhau** — không bao giờ
+  reject một liên kết chỉ vì lệch tiền khi reference đã khớp (Facebook Bill
+  hay tính phí khác amount ngân hàng ghi nợ vẫn là chuyện bình thường).
+  Không có reference thì amount **không đủ** để tự match.
+* Gộp theo khoá `(reference, ngày giao dịch)` — cùng reference nhưng khác
+  ngày là **hai** payment group riêng, không gộp nhầm.
+* Hai trang Giấy báo nợ cùng reference + cùng ngày, một trang "Phí GD..."
+  và một trang "GD thanh toan tai..." -> **một** group duy nhất
+  (`main_payment` + `fees`), không tạo hai folder.
+* Không có reference: fallback theo số tiền + ngày, nhưng **chỉ tự match
+  khi là ứng viên duy nhất mỗi bên** — nhiều ứng viên cùng thoả thì
+  `NEEDS_REVIEW`, không bao giờ tự chọn.
+* 4 trạng thái: `MATCHED_HIGH` / `MATCHED` / `NEEDS_REVIEW` / `UNMATCHED`,
+  luôn kèm `match_reason` giải thích được (vd. *"Facebook reference khớp
+  tuyệt đối: ABCD1234EF + mã giao dịch sao kê khớp: FT100000001"*).
+
+### Output
+
+* `app/exporters/payment_group_organizer.py` — một `FacebookPaymentGroup` =
+  một thư mục `OUTPUT/FB_<reference>_<ngày>/`, thứ tự file đúng §J (Facebook
+  Bill -> thanh toán chính -> phí -> sao kê/hỗ trợ), cộng `_manifest.txt` và
+  `00_FULL_DOCUMENT_SET.pdf` (gộp bằng `pymupdf.insert_pdf`) khi có ≥ 2 file.
+  Group `NEEDS_REVIEW`/`UNMATCHED` vào thư mục con riêng.
+* `app/exporters/statement_extract_pdf.py` — khi một dòng sao kê đã khớp
+  nhưng KHÔNG có phiếu ngân hàng gốc, sinh một PDF ghi rõ 3 dòng
+  **"TRÍCH XUẤT GIAO DỊCH TỪ SAO KÊ / TỰ ĐỘNG TẠO BỞI ACCOUNTING DOCUMENT
+  TOOL / KHÔNG PHẢI CHỨNG TỪ NGÂN HÀNG GỐC"** — không bao giờ giả làm chứng
+  từ ngân hàng thật. Dùng font `assets/fonts/DejaVuSans.ttf` (đóng gói kèm
+  app, xem `NOTICE.txt` cùng thư mục — giấy phép DejaVu, miễn phí kể cả
+  thương mại) vì Base14 mặc định của PyMuPDF không có dấu tiếng Việt.
+* `app/exporters/payment_group_exporter.py` — một sheet Excel riêng
+  (`FACEBOOK_PAYMENT_GROUP`, không đụng 4 sheet MISA hiện có), một payment
+  group một dòng, đủ trường đối chiếu theo §K (số tiền Facebook/ngân hàng
+  tách riêng, `match_status`/`match_confidence`/`match_reason`...).
+
+### Giới hạn đã biết (minh bạch, không giấu)
+
+* **Chưa có file sao kê VPBank / Giấy báo nợ VietinBank thật** để soi cấu
+  trúc — khác hẳn 3 loại chứng từ gốc đã reverse-engineer kỹ trên file mẫu
+  thật. `row_pattern` trong `bank_statement_rules.yaml` và các rule trong
+  `extraction_rules.yaml:VIETINBANK_DEBIT_ADVICE` là suy đoán hợp lý dựa
+  trên mô tả nghiệp vụ, đã test kỹ bằng dữ liệu tổng hợp tự dựng đúng hình
+  dạng — nhưng **cần đối chiếu lại với file thật đầu tiên** trước khi tin
+  tưởng hoàn toàn, giống hệt cách Phase 1 làm với 3 file mẫu ban đầu.
+* **`FacebookPaymentGroup`/`BankTransaction` CHƯA có bảng DB riêng** — khác
+  với `Dossier` (Phase 3, round-trip đầy đủ qua SQLite). Để giữ thay đổi
+  additive và không phình schema trong lần này, kết quả MATCH được giữ
+  trong bộ nhớ (GUI) giữa các bước MATCH -> ORGANIZE -> EXPORT của luồng
+  Facebook — đóng app thì phải chạy lại MATCH (nhưng `Document` bên dưới
+  vẫn nằm trong DB như bình thường, không mất gì cả). `PaymentGroupService`
+  đơn giản, dễ mở rộng thêm bảng sau nếu cần review/sửa tay qua nhiều phiên.
+
 ## Ba đặc điểm của chứng từ thật mà code phải xử lý
 
 Rút ra từ phân tích file mẫu (`docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md`):

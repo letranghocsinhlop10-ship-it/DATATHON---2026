@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from app.models.enums import DossierStatus
+from app.models.enums import DocumentType, DossierStatus, PaymentGroupStatus
+from app.models.facebook_payment_group import FacebookPaymentGroup
 from app.ui.view_models import (
     StatusColor,
     dossier_to_row,
     document_to_row,
+    payment_group_status_color,
+    payment_group_to_row,
     presence_mark,
     status_color,
     status_label,
 )
-from matching_helpers import date, meta
+from matching_helpers import date, make_doc, meta
 
 
 class TestPresenceMark:
@@ -86,3 +89,31 @@ class TestDocumentToRow:
         assert row.document_id == 1
         assert row.reference == "ABCD1234EF"
         assert row.document_type == "META_INVOICE"
+
+
+class TestPaymentGroupToRow:
+    def test_khop_cao_la_xanh_va_du_mark(self):
+        bill = meta("ABCD1234EF")
+        main = make_doc(DocumentType.VPBANK_DEBIT_NOTE, meta_reference="ABCD1234EF")
+        group = FacebookPaymentGroup(
+            group_code="FB_ABCD1234EF_2026-08-01",
+            facebook_reference="ABCD1234EF",
+            transaction_date=date(2026, 8, 1),
+            facebook_bill=bill,
+            main_payment=main,
+            status=PaymentGroupStatus.MATCHED_HIGH,
+        )
+        row = payment_group_to_row(group)
+        assert row.bill_mark == "✓"
+        assert row.main_mark == "✓"
+        assert row.status_color == StatusColor.GREEN
+        assert payment_group_status_color(PaymentGroupStatus.MATCHED_HIGH) == StatusColor.GREEN
+
+    def test_needs_review_la_vang(self):
+        assert payment_group_status_color(PaymentGroupStatus.NEEDS_REVIEW) == StatusColor.YELLOW
+
+    def test_khong_co_bill_hien_thi_dau_x(self):
+        group = FacebookPaymentGroup(group_code="FB_X", status=PaymentGroupStatus.UNMATCHED)
+        row = payment_group_to_row(group)
+        assert row.bill_mark == "✗"
+        assert row.reference == "—"

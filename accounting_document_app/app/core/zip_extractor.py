@@ -30,13 +30,22 @@ An toàn:
 from __future__ import annotations
 
 import logging
+import shutil
 import zipfile
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-__all__ = ["ZipExtractProgress", "ZipExtractResult", "extract_pdfs_from_zips"]
+from app.utils.file_utils import iter_pdf_files
+
+__all__ = [
+    "ZipExtractProgress",
+    "ZipExtractResult",
+    "extract_pdfs_from_zips",
+    "LooseCollectResult",
+    "collect_loose_pdfs",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -203,5 +212,73 @@ def extract_pdfs_from_zips(
     logger.info(
         "Lấy PDF từ ZIP hoàn tất: %d ZIP, %d PDF, %d bỏ qua, %d lỗi",
         result.zip_scanned, result.pdf_extracted, result.non_pdf_skipped, result.zip_errors,
+    )
+    return result
+
+
+@dataclass
+class LooseCollectResult:
+    """Kết quả gom PDF rời (không nằm trong ZIP nào) vào thư mục đích."""
+
+    scanned: int = 0
+    copied: int = 0
+    already_present: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+def collect_loose_pdfs(source_folder: Path | str, dest_folder: Path | str) -> LooseCollectResult:
+    """Gom mọi PDF nằm TRỰC TIẾP trong ``source_folder`` (không phải từ ZIP,
+    không đệ quy vào thư mục con) vào ``dest_folder``.
+
+    BỐI CẢNH: thư mục nguồn thực tế của người dùng có thể chứa cả ZIP LẪN
+    PDF rời cạnh nhau (vd. ``data_tool_read_pdf/`` có ``invoice (1).zip``
+    VÀ ``facebook_bill.pdf`` nằm ngay cạnh nhau) — bước "Chuẩn bị dữ liệu"
+    cần gom cả hai loại vào cùng một nơi (``ALL_DATA``) để SCAN một lượt.
+
+    CỐ Ý không đệ quy vào thư mục con (vd. ``data_1/``, ``data_2/`` trong
+    ví dụ cấu trúc thực tế) — đó có thể là dữ liệu của người dùng từ trước,
+    không phải phần việc của bước chuẩn bị dữ liệu tự động; giống hệt cách
+    ``extract_pdfs_from_zips`` chỉ quét ZIP trực tiếp trong thư mục nguồn.
+
+    Dùng LẠI đúng cơ chế chống trùng CRC32 + kích thước của
+    ``extract_pdfs_from_zips`` (``_resolve_target``) — quét lại nhiều lần
+    không sinh file trùng.
+
+    Args:
+        source_folder: Thư mục nguồn.
+        dest_folder: Thư mục đích (thường là ``ALL_DATA``, đã tồn tại hoặc
+            được tạo mới).
+
+    Returns:
+        ``LooseCollectResult``.
+    """
+    source = Path(source_folder)
+    dest = Path(dest_folder)
+    dest.mkdir(parents=True, exist_ok=True)
+    dest_resolved = dest.resolve()
+
+    result = LooseCollectResult()
+    for path in iter_pdf_files(source, recursive=False):
+        if path.resolve().parent == dest_resolved:
+            continue  # PDF đã nằm sẵn trong đích (vd. ALL_DATA chính là source_folder)
+
+        result.scanned += 1
+        try:
+            crc = _file_crc32(path)
+            size = path.stat().st_size
+            target, is_new = _resolve_target(dest, path.name, crc, size)
+            if is_new:
+                shutil.copy2(path, target)
+                result.copied += 1
+            else:
+                result.already_present += 1
+        except OSError as exc:
+            message = f"Không copy được {path.name}: {exc}"
+            logger.warning(message)
+            result.errors.append(message)
+
+    logger.info(
+        "Gom PDF rời hoàn tất: %d file quét, %d đã copy, %d đã có sẵn, %d lỗi",
+        result.scanned, result.copied, result.already_present, len(result.errors),
     )
     return result

@@ -1,0 +1,31 @@
+# Luật parse SAO KÊ ngân hàng nhiều giao dịch/trang — KHÁC hẳn
+# extraction_rules.yaml (nơi MỘT chứng từ chỉ có MỘT giá trị cho mỗi field):
+# ở đây một file sinh ra NHIỀU BankTransaction, nên có schema riêng.
+#
+# ============================================================================
+# CẢNH BÁO QUAN TRỌNG — ĐỌC TRƯỚC KHI DÙNG VỚI FILE THẬT:
+#
+# Dự án CHƯA có file sao kê VPBank thật để soi cấu trúc cột (khác với
+# META_INVOICE/VPBANK_DEBIT_NOTE/VPBANK_VAT_INVOICE đã được reverse-engineer
+# kỹ trên 3 file mẫu thật — xem docs/PHASE1_ADDENDUM_SAMPLE_ANALYSIS.md).
+# ``row_pattern`` dưới đây là suy đoán HỢP LÝ dựa trên mô tả nghiệp vụ (các
+# cột: mã giao dịch dạng FT..., ngày, [giờ], diễn giải, ghi nợ, ghi có, số dư)
+# — CẦN được đối chiếu và tinh chỉnh lại ngay khi có file PDF sao kê thật đầu
+# tiên, giống hệt cách Phase 1 đã làm với 3 file mẫu kia. Cho tới lúc đó,
+# app/core/bank_statement_parser.py chỉ đảm bảo: một dòng KHỚP được
+# row_pattern thì parse ĐÚNG ý nghĩa từng nhóm bắt; dòng KHÔNG khớp bị bỏ qua
+# (không đoán, không cố parse một phần).
+# ============================================================================
+
+version: 1
+
+banks:
+  VPBANK:
+    money_format:
+      thousands: ","
+      decimal: "."
+    # Named group bắt buộc: txn_id, date. Tuỳ chọn: time, detail, debit,
+    # credit, balance — thiếu group nào thì trường đó là None (không đoán).
+    # Một dòng, không dùng block scalar nhiều dòng — YAML '>' gộp xuống dòng
+    # thành DÚNG MỘT khoảng trắng, dễ làm lệch số lượng \s+ trong regex.
+    row_pattern: '(?P<txn_id>FT\d{6,20})\s+(?P<date>\d{1,2}[/\-]\d{1,2}[/\-]\d{4})(?:\s+(?P<time>\d{1,2}:\d{2}(?::\d{2})?))?\s+(?P<detail>.+?)\s+(?:(?P<debit>[\d]{1,3}(?:[.,]\d{3})*(?:\.\d{2})?)\s+)?(?:(?P<credit>[\d]{1,3}(?:[.,]\d{3})*(?:\.\d{2})?)\s+)?(?P<balance>[\d]{1,3}(?:[.,]\d{3})*(?:\.\d{2})?)\s*$'

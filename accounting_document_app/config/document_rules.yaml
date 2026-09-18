@@ -80,3 +80,46 @@ types:
     min_score: 1
     page_start_markers:
       - "Ký hiệu (Serial)"
+
+  VIETINBANK_DEBIT_ADVICE:
+    description: "Giấy báo nợ VietinBank (một trang = một giao dịch, sau khi tách vật lý)"
+    must_have_any:
+      - "GIẤY BÁO NỢ"
+      - "Debit Advice"
+    strong:
+      - "Số giao dịch"
+      - "Transaction number"
+      - "Ngày thực hiện"
+      - "Transaction date"
+      - "Số tiền bằng số"
+    must_not_have:
+      - "PHIẾU GIAO DỊCH GHI NỢ"
+      - "Ký hiệu (Serial)"
+    min_score: 1
+    # CỐ Ý không khai báo page_start_markers: việc tách file gốc nhiều trang
+    # (vd. giay-bao-No.pdf 48 trang) do app/core/debit_advice_splitter.py
+    # đảm nhiệm RIÊNG — ghi ra file PDF vật lý một trang cho từng giao dịch
+    # (xem yêu cầu nghiệp vụ §E). Nếu khai báo cả marker ở đây, file gốc sẽ
+    # bị VoucherSplitter tách "ảo" một lần nữa lúc SCAN bình thường, sinh
+    # chứng từ trùng lặp với các trang đã tách vật lý.
+
+  BANK_STATEMENT:
+    description: >-
+      Sao kê tài khoản ngân hàng nhiều giao dịch — CHỈ dùng để định tuyến
+      file sang app/core/bank_statement_parser.py, không trích xuất qua cơ
+      chế rule một-giá-trị-một-chứng-từ thông thường (một file sinh ra
+      NHIỀU BankTransaction, không phải một Document).
+    must_have_any:
+      - "SAO KÊ TÀI KHOẢN"
+      - "STATEMENT OF ACCOUNT"
+      - "Sao kê giao dịch"
+    strong:
+      - "Số dư"
+      - "Running balance"
+      - "Ngày giao dịch"
+      - "Phát sinh Nợ"
+      - "Phát sinh Có"
+    must_not_have:
+      - "PHIẾU GIAO DỊCH GHI NỢ"
+      - "GIẤY BÁO NỢ"
+    min_score: 1

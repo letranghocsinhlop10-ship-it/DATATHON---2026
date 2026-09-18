@@ -11,6 +11,7 @@ import logging
 from app.config_loader import ExtractionConfig
 from app.extractors.base_extractor import BaseExtractor
 from app.extractors.meta_invoice_extractor import MetaInvoiceExtractor
+from app.extractors.vietinbank_debit_advice_extractor import VietinBankDebitAdviceExtractor
 from app.extractors.vpbank_debit_extractor import VPBankDebitNoteExtractor
 from app.extractors.vpbank_vat_extractor import VPBankVatInvoiceExtractor
 from app.models.enums import DocumentType
@@ -29,6 +30,7 @@ class ExtractorRegistry:
             MetaInvoiceExtractor,
             VPBankDebitNoteExtractor,
             VPBankVatInvoiceExtractor,
+            VietinBankDebitAdviceExtractor,
         ):
             extractor = extractor_cls(config)
             self._extractors[extractor.document_type] = extractor

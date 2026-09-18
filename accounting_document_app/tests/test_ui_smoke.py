@@ -176,6 +176,67 @@ class TestLayPdfTuZip:
         assert win._zip_extract_worker is None
 
 
+class TestChuanBiDuLieuVaPaymentGroup:
+    """Bấm '📂 Chuẩn bị dữ liệu' rồi 'MATCH (Facebook)' thật — qua
+    PrepareDataWorker/PaymentGroupMatchWorker (QThread), không gọi thẳng
+    service, theo đúng mẫu đã bắt được bug threading ở SCAN/MATCH trước đây."""
+
+    def test_chuan_bi_du_lieu_roi_match_facebook_qua_nut_bam_that(
+        self, qtbot, db, classifier_config, extraction_config, app_settings,
+        accounting_config, misa_config, tmp_path,
+    ):
+        import zipfile
+
+        from pdf_synth import FONT, write_pdf
+
+        if FONT is None:
+            pytest.skip("Không tìm thấy font DejaVu Sans trong môi trường này")
+
+        from app.ui.main_window import MainWindow
+
+        source_dir = tmp_path / "data_tool_read_pdf"
+        source_dir.mkdir()
+
+        note_lines = [
+            "PHIẾU GIAO DỊCH GHI NỢ/DEBIT NOTE",
+            "Ngày/Transaction Date: 01/08/2026",
+            "Tên Khách hàng/Customer Name: CONG TY TEST",
+            "Mã giao dịch/Transaction code: FT99999999",
+            "Loại tiền/Currency: VND",
+            "Số tiền/Amount: 100,000 VND",
+            "Diễn giải/Details: GD thanh toan tai FACEBK *ZIPREF001 DUBLIN IE",
+        ]
+        zip_src = tmp_path / "_zip_src"
+        zip_src.mkdir()
+        write_pdf(zip_src / "note.pdf", [note_lines])
+        with zipfile.ZipFile(source_dir / "invoice (1).zip", "w") as zf:
+            zf.write(zip_src / "note.pdf", arcname="note.pdf")
+
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
+        qtbot.addWidget(win)
+        win._prepare_source_edit.setText(str(source_dir))
+
+        win._on_prepare_clicked()
+        assert win._prepare_worker is not None
+        with qtbot.waitSignal(win._prepare_worker.finished_ok, timeout=10000):
+            pass
+        qtbot.waitUntil(lambda: not win._prepare_worker.isRunning(), timeout=2000)
+
+        assert win._current_run_id is not None
+        assert "Đã SCAN: 1 chứng từ" in win._summary_label.text()
+
+        win._on_payment_group_match_clicked()
+        assert win._payment_group_match_worker is not None
+        with qtbot.waitSignal(win._payment_group_match_worker.finished_ok, timeout=10000):
+            pass
+        qtbot.waitUntil(lambda: not win._payment_group_match_worker.isRunning(), timeout=2000)
+
+        assert win._payment_group_table.rowCount() == 1
+        assert win._payment_group_table.item(0, 1).text() == "ZIPREF001"  # cột Facebook Ref
+        assert win._payment_group_organize_button.isEnabled() is True
+        assert win._payment_group_export_button.isEnabled() is True
+
+
 class TestDossierDetailWindow:
     def test_dung_voi_dossier_thieu_du_lieu(self, qtbot, db):
         from app.ui.dossier_detail_window import DossierDetailWindow

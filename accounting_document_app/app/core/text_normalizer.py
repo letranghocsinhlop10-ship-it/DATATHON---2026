@@ -27,6 +27,8 @@ __all__ = [
     "normalize_reference",
     "normalize_tax_code",
     "references_match",
+    "normalize_facebook_reference",
+    "classify_bank_remark_role",
 ]
 
 #: Ký tự vô hình cần loại bỏ trước khi so sánh.
@@ -195,3 +197,99 @@ def references_match(left: str | None, right: str | None) -> bool:
     if left is None or right is None:
         return False
     return left == right
+
+
+#: Nhãn nhà cung cấp Facebook/Meta xuất hiện trong diễn giải ngân hàng —
+#: xem thêm ``app/extractors/merchant_reference.py`` (dùng cùng danh sách
+#: này qua ``config/extraction_rules.yaml: merchant.anchors``).
+_FACEBOOK_ANCHOR_RE = re.compile(r"\bFACEBO?O?K\b", re.IGNORECASE)
+#: Sau anchor có thể có khoảng trắng, dấu ``*`` (ký hiệu che một phần chuỗi
+#: trên một số sao kê), rồi mới tới reference thật.
+_FACEBOOK_AFTER_ANCHOR_RE = re.compile(r"[\s*]*([A-Za-z0-9]{4,24})")
+#: Khi KHÔNG có anchor, chấp nhận đầu vào là chính reference nếu nó là MỘT
+#: token liền (không khoảng trắng) — tránh nuốt nhầm cả câu diễn giải.
+_BARE_REFERENCE_RE = re.compile(r"^[A-Za-z0-9]{4,24}$")
+
+
+def normalize_facebook_reference(text: str | None) -> str | None:
+    """Tìm và chuẩn hoá reference Facebook/Meta nằm trong một đoạn diễn giải tự do.
+
+    Diễn giải ngân hàng thật viết reference theo nhiều cách khác nhau::
+
+        ABCD1234EF
+        FACEBK ABCD1234EF
+        FACEBK *ABCD1234EF
+        GD thanh toan tai FACEBK *ABCD1234EF, the 2260
+
+    Hàm này CHỈ bóc tách + chuẩn hoá vỏ chuỗi (case-insensitive, bỏ tiền tố
+    ``FACEBK``/``FACEBOOK``, bỏ dấu ``*``, bỏ dấu phẩy/khoảng trắng thừa) —
+    giống mọi hàm khác trong module này, KHÔNG bao giờ đoán hay sửa ký tự
+    bên trong reference, KHÔNG fuzzy match. Không cố định một độ lang cụ thể
+    (thực tế đã thấy cả 10 và 11 ký tự) — chỉ giới hạn 4..24 ký tự chữ/số làm
+    biên an toàn.
+
+    Args:
+        text: Đoạn text tự do có thể chứa reference, hoặc chính là reference.
+
+    Returns:
+        Reference đã chuẩn hoá (uppercase, không khoảng trắng), hoặc
+        ``None`` nếu không tìm thấy gì hợp lý.
+
+    Examples:
+        >>> normalize_facebook_reference("FACEBK *ABCD1234EF, the 2260")
+        'ABCD1234EF'
+        >>> normalize_facebook_reference("GD thanh toan tai FACEBK ABCD1234EF DUBLIN IE")
+        'ABCD1234EF'
+        >>> normalize_facebook_reference("ABCD1234EF")
+        'ABCD1234EF'
+        >>> normalize_facebook_reference("khong co reference o day") is None
+        True
+    """
+    if not text:
+        return None
+
+    flat = flatten_whitespace(text)
+    if not flat:
+        return None
+
+    anchor = _FACEBOOK_ANCHOR_RE.search(flat)
+    if anchor is not None:
+        match = _FACEBOOK_AFTER_ANCHOR_RE.match(flat[anchor.end() :])
+        if match is None:
+            return None
+        candidate = match.group(1)
+    elif _BARE_REFERENCE_RE.match(flat):
+        candidate = flat
+    else:
+        return None
+
+    return normalize_reference(candidate, pattern=r".*").value
+
+
+#: "Phi GD..."/"Phí GD..." — CHỈ khớp khi đứng ở ĐẦU diễn giải, để không
+#: nhầm với "GD thanh toan tai" (thanh toán chính) của một giao dịch khác
+#: vô tình chứa chữ "phi" ở giữa câu.
+_BANK_FEE_PREFIX_RE = re.compile(r"^\s*ph[íi]\b", re.IGNORECASE)
+
+
+def classify_bank_remark_role(text: str | None) -> str:
+    """Phân loại một dòng diễn giải ngân hàng là phí hay thanh toán chính.
+
+    Dùng cho cả ``VPBANK_DEBIT_NOTE`` (``payment_detail``) và
+    ``VIETINBANK_DEBIT_ADVICE`` (``remarks``) — §F yêu cầu nghiệp vụ: diễn
+    giải bắt đầu bằng "Phí GD..."/"Phi GD..." là phí giao dịch ngân hàng đi
+    kèm một khoản thanh toán chính, KHÔNG phải một khoản thanh toán Facebook
+    độc lập.
+
+    Args:
+        text: Diễn giải thô (chưa cần flatten trước).
+
+    Returns:
+        ``"BANK_FEE"`` hoặc ``"MAIN_PAYMENT"`` (mặc định khi không rõ hoặc
+        rỗng — một dòng không xác định được vẫn phải có vai trò để tham gia
+        matching, tín hiệu tham chiếu Facebook mới là yếu tố quyết định gộp
+        nhóm, không phải trường này).
+    """
+    if not text:
+        return "MAIN_PAYMENT"
+    return "BANK_FEE" if _BANK_FEE_PREFIX_RE.match(flatten_whitespace(text)) else "MAIN_PAYMENT"

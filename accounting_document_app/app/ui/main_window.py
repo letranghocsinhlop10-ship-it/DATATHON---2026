@@ -42,18 +42,35 @@ from app.database.document_repository import DocumentRepository
 from app.database.dossier_repository import DossierRepository
 from app.database.processing_run_repository import ProcessingRunRepository
 from app.models.dossier import Dossier
+from app.models.enums import PaymentGroupStatus
+from app.models.facebook_payment_group import FacebookPaymentGroup
 from app.services.export_service import ExportService
 from app.services.match_service import MatchService
 from app.services.organize_service import OrganizeService
+from app.services.payment_group_service import PaymentGroupService
+from app.services.prepare_data_service import PrepareDataService
 from app.services.scan_service import ScanProgress, ScanResult, ScanService
-from app.ui.view_models import dossier_to_row, status_color
-from app.ui.workers import ExportWorker, MatchWorker, OrganizeWorker, ScanWorker, ZipExtractWorker
+from app.ui.view_models import dossier_to_row, payment_group_to_row, status_color
+from app.ui.workers import (
+    ExportWorker,
+    MatchWorker,
+    OrganizeWorker,
+    PaymentGroupExportWorker,
+    PaymentGroupMatchWorker,
+    PaymentGroupOrganizeWorker,
+    PrepareDataWorker,
+    ScanWorker,
+    ZipExtractWorker,
+)
 
 __all__ = ["MainWindow"]
 
 logger = logging.getLogger(__name__)
 
 _DOSSIER_COLUMNS = ("Hồ sơ", "Reference", "Ngày GD", "Meta", "Debit", "VAT", "Trạng thái", "Đã review")
+_PAYMENT_GROUP_COLUMNS = (
+    "Payment Group", "Facebook Ref", "Ngày GD", "Bill", "Main", "Fee", "Sao kê", "Trạng thái",
+)
 
 
 class MainWindow(QMainWindow):
@@ -99,6 +116,16 @@ class MainWindow(QMainWindow):
         self._dossier_rows: list[Dossier] = []
         self._last_dossier_count = 0
 
+        # --- Luồng Facebook Payment Group (§L) — chạy song song, độc lập
+        # với luồng dossier META/DEBIT/VAT ở trên, cùng dùng chung run_id.
+        self._prepare_worker: PrepareDataWorker | None = None
+        self._payment_group_match_worker: PaymentGroupMatchWorker | None = None
+        self._payment_group_organize_worker: PaymentGroupOrganizeWorker | None = None
+        self._payment_group_export_worker: PaymentGroupExportWorker | None = None
+        self._bank_transactions: list = []
+        self._payment_groups: list[FacebookPaymentGroup] = []
+        self._last_payment_group_count = 0
+
         self.setWindowTitle("Marketing Accounting Document Tool")
         self.resize(1100, 700)
         self._build_ui()
@@ -111,22 +138,45 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
+        layout.addLayout(self._build_prepare_row())
         layout.addLayout(self._build_folder_row())
         layout.addLayout(self._build_action_row())
+        layout.addLayout(self._build_payment_group_action_row())
 
         self._progress_bar = QProgressBar(self)
         self._progress_bar.setTextVisible(True)
         layout.addWidget(self._progress_bar)
 
-        self._summary_label = QLabel("Chưa có dữ liệu — chọn thư mục và bấm SCAN PDF", self)
+        self._summary_label = QLabel("Chưa có dữ liệu — chọn thư mục nguồn và bấm Chuẩn bị dữ liệu", self)
         layout.addWidget(self._summary_label)
 
         self._tabs = QTabWidget(self)
         self._dossier_table = self._build_dossier_table()
         self._tabs.addTab(self._dossier_table, "Hồ sơ")
+        self._payment_group_table = self._build_payment_group_table()
+        self._tabs.addTab(self._payment_group_table, "Facebook Payment Groups")
         layout.addWidget(self._tabs)
 
         self.setStatusBar(QStatusBar(self))
+
+    def _build_prepare_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Thư mục nguồn (ZIP + PDF lộn xộn):"))
+        self._prepare_source_edit = QLineEdit(self)
+        row.addWidget(self._prepare_source_edit)
+        browse = QPushButton("Browse...", self)
+        browse.clicked.connect(self._on_browse_prepare_source)
+        row.addWidget(browse)
+
+        self._prepare_button = QPushButton("📂 Chuẩn bị dữ liệu", self)
+        self._prepare_button.setToolTip(
+            "Tự động: lấy PDF từ ZIP + PDF rời -> tách Giấy báo nợ nhiều trang\n"
+            "-> nhận diện & parse sao kê ngân hàng -> SCAN toàn bộ phần còn lại.\n"
+            "Sau khi xong có thể bấm MATCH/ORGANIZE/EXPORT (Facebook) bên dưới."
+        )
+        self._prepare_button.clicked.connect(self._on_prepare_clicked)
+        row.addWidget(self._prepare_button)
+        return row
 
     def _build_folder_row(self) -> QVBoxLayout:
         outer = QVBoxLayout()
@@ -195,6 +245,34 @@ class MainWindow(QMainWindow):
         table.cellDoubleClicked.connect(self._on_dossier_row_double_clicked)
         return table
 
+    def _build_payment_group_action_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Facebook Payment Group:"))
+
+        self._payment_group_match_button = QPushButton("MATCH (Facebook)", self)
+        self._payment_group_match_button.clicked.connect(self._on_payment_group_match_clicked)
+        row.addWidget(self._payment_group_match_button)
+
+        self._payment_group_organize_button = QPushButton("ORGANIZE (Facebook)", self)
+        self._payment_group_organize_button.setEnabled(False)
+        self._payment_group_organize_button.clicked.connect(self._on_payment_group_organize_clicked)
+        row.addWidget(self._payment_group_organize_button)
+
+        self._payment_group_export_button = QPushButton("EXPORT (Facebook)", self)
+        self._payment_group_export_button.setEnabled(False)
+        self._payment_group_export_button.clicked.connect(self._on_payment_group_export_clicked)
+        row.addWidget(self._payment_group_export_button)
+
+        return row
+
+    def _build_payment_group_table(self) -> QTableWidget:
+        table = QTableWidget(0, len(_PAYMENT_GROUP_COLUMNS), self)
+        table.setHorizontalHeaderLabels(_PAYMENT_GROUP_COLUMNS)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        return table
+
     # --------------------------------------------------------- điều khiển
 
     def _on_browse_input(self) -> None:
@@ -206,6 +284,53 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục xuất")
         if folder:
             self._output_folder_edit.setText(folder)
+
+    def _on_browse_prepare_source(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Chọn thư mục nguồn")
+        if folder:
+            self._prepare_source_edit.setText(folder)
+
+    def _on_prepare_clicked(self) -> None:
+        source = self._prepare_source_edit.text().strip()
+        if not source or not Path(source).is_dir():
+            QMessageBox.warning(self, "Thiếu thư mục", "Vui lòng chọn một thư mục nguồn hợp lệ.")
+            return
+
+        self._current_run_id = self._runs.start(source, self._output_folder_edit.text().strip() or None)
+        service = PrepareDataService(self._db, self._classifier_config, self._extraction_config, self._app_settings)
+        self._prepare_worker = PrepareDataWorker(service, source, self._current_run_id, parent=self)
+        self._prepare_worker.progress.connect(self._on_prepare_progress)
+        self._prepare_worker.finished_ok.connect(self._on_prepare_finished)
+        self._prepare_worker.failed.connect(self._on_worker_failed)
+
+        self._set_running(True)
+        self._progress_bar.setValue(0)
+        self._prepare_worker.start()
+
+    def _on_prepare_progress(self, progress) -> None:
+        self._progress_bar.setMaximum(max(progress.total, 1))
+        self._progress_bar.setValue(progress.current)
+        self._progress_bar.setFormat(f"[{progress.stage}] {progress.message}")
+
+    def _on_prepare_finished(self, result) -> None:
+        self._set_running(False)
+        self._bank_transactions = result.bank_transactions
+        # Tích hợp với luồng dossier META/DEBIT/VAT gốc: ALL_DATA vừa chuẩn
+        # bị xong dùng thẳng được cho SCAN/MATCH/ORGANIZE/EXPORT hiện có,
+        # không bắt người dùng chọn lại thư mục.
+        self._input_folder_edit.setText(str(result.all_data_folder))
+
+        scanned = result.scan_result.total_files if result.scan_result else 0
+        summary = (
+            f"ZIP đã quét: {result.zip_result.zip_scanned} · "
+            f"PDF lấy từ ZIP: {result.zip_result.pdf_extracted} · "
+            f"PDF rời: {result.loose_collect_result.copied} · "
+            f"Debit Advice đã split: {len(result.split_result.split_pages)} · "
+            f"Sao kê: {len(result.statement_files)} file / {len(result.bank_transactions)} giao dịch · "
+            f"Đã SCAN: {scanned} chứng từ"
+        )
+        self._summary_label.setText(summary + " — sẵn sàng bấm MATCH (Facebook) hoặc MATCH + VALIDATE.")
+        self._update_button_states()
 
     def _on_extract_zip_clicked(self) -> None:
         source = QFileDialog.getExistingDirectory(self, "Chọn thư mục nguồn chứa file ZIP")
@@ -292,6 +417,8 @@ class MainWindow(QMainWindow):
             self._scan_worker.request_cancel()
         if self._zip_extract_worker is not None and self._zip_extract_worker.isRunning():
             self._zip_extract_worker.request_cancel()
+        if self._prepare_worker is not None and self._prepare_worker.isRunning():
+            self._prepare_worker.request_cancel()
 
     def _on_scan_progress(self, progress: ScanProgress) -> None:
         self._progress_bar.setMaximum(progress.total)
@@ -391,6 +518,99 @@ class MainWindow(QMainWindow):
         self._update_button_states()
         QMessageBox.information(self, "Đã xuất Excel", f"Đã lưu: {output_path}")
 
+    def _on_payment_group_match_clicked(self) -> None:
+        if self._current_run_id is None:
+            QMessageBox.warning(self, "Chưa có dữ liệu", "Vui lòng bấm Chuẩn bị dữ liệu (hoặc SCAN PDF) trước.")
+            return
+
+        service = PaymentGroupService(self._db)
+        self._payment_group_match_worker = PaymentGroupMatchWorker(
+            service, self._current_run_id, self._bank_transactions, parent=self
+        )
+        self._payment_group_match_worker.finished_ok.connect(self._on_payment_group_match_finished)
+        self._payment_group_match_worker.failed.connect(self._on_worker_failed)
+
+        self._set_running(True)
+        self._payment_group_match_worker.start()
+
+    def _on_payment_group_match_finished(self, result) -> None:
+        self._set_running(False)
+        self._payment_groups = result.groups
+        self._last_payment_group_count = len(result.groups)
+        self._populate_payment_group_table(result.groups)
+
+        matched = sum(
+            1 for g in result.groups if g.status in (PaymentGroupStatus.MATCHED_HIGH, PaymentGroupStatus.MATCHED)
+        )
+        needs_review = sum(1 for g in result.groups if g.status is PaymentGroupStatus.NEEDS_REVIEW)
+        unmatched = sum(1 for g in result.groups if g.status is PaymentGroupStatus.UNMATCHED)
+        self._summary_label.setText(
+            f"Payment Groups: {len(result.groups)} · Matched: {matched} · "
+            f"Needs Review: {needs_review} · Unmatched: {unmatched}"
+        )
+        self._update_button_states()
+
+    def _on_payment_group_organize_clicked(self) -> None:
+        if not self._payment_groups:
+            QMessageBox.warning(self, "Chưa ghép payment group", "Vui lòng bấm MATCH (Facebook) trước.")
+            return
+
+        output_root = self._output_folder_edit.text().strip()
+        if not output_root:
+            output_root = QFileDialog.getExistingDirectory(self, "Chọn thư mục xuất PDF")
+            if not output_root:
+                return
+            self._output_folder_edit.setText(output_root)
+
+        service = PaymentGroupService(self._db)
+        self._payment_group_organize_worker = PaymentGroupOrganizeWorker(
+            service, self._payment_groups, output_root, parent=self
+        )
+        self._payment_group_organize_worker.finished_ok.connect(self._on_payment_group_organize_finished)
+        self._payment_group_organize_worker.failed.connect(self._on_worker_failed)
+
+        self._set_running(True)
+        self._payment_group_organize_worker.start()
+
+    def _on_payment_group_organize_finished(self, result) -> None:
+        self._set_running(False)
+        self._update_button_states()
+        message = (
+            f"Đã copy {result.copied_files} file · {result.generated_extracts} PDF trích xuất tự sinh "
+            f"từ sao kê · {result.merged_files} bộ đã gộp."
+        )
+        if result.errors:
+            message += f"\n\n{len(result.errors)} lỗi:\n" + "\n".join(result.errors[:10])
+            QMessageBox.warning(self, "Sắp xếp Payment Group — có lỗi", message)
+        else:
+            QMessageBox.information(self, "Đã sắp xếp Payment Group", message)
+
+    def _on_payment_group_export_clicked(self) -> None:
+        if not self._payment_groups:
+            QMessageBox.warning(self, "Chưa ghép payment group", "Vui lòng bấm MATCH (Facebook) trước.")
+            return
+
+        excel_folder = self._output_folder_edit.text().strip() or "."
+        default_name = f"{excel_folder}/FACEBOOK_PAYMENT_GROUPS_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+        output_path, _ = QFileDialog.getSaveFileName(self, "Lưu file Excel", default_name, "Excel (*.xlsx)")
+        if not output_path:
+            return
+
+        service = PaymentGroupService(self._db)
+        self._payment_group_export_worker = PaymentGroupExportWorker(
+            service, self._payment_groups, output_path, parent=self
+        )
+        self._payment_group_export_worker.finished_ok.connect(self._on_payment_group_export_finished)
+        self._payment_group_export_worker.failed.connect(self._on_worker_failed)
+
+        self._set_running(True)
+        self._payment_group_export_worker.start()
+
+    def _on_payment_group_export_finished(self, output_path) -> None:
+        self._set_running(False)
+        self._update_button_states()
+        QMessageBox.information(self, "Đã xuất Excel", f"Đã lưu: {output_path}")
+
     def _on_worker_failed(self, message: str) -> None:
         self._set_running(False)
         QMessageBox.critical(self, "Lỗi xử lý", message)
@@ -432,21 +652,50 @@ class MainWindow(QMainWindow):
                     item.setBackground(_qcolor(row.status_color))
                 table.setItem(row_index, col_index, item)
 
+    def _populate_payment_group_table(self, groups: list[FacebookPaymentGroup]) -> None:
+        table = self._payment_group_table
+        table.setRowCount(len(groups))
+        for row_index, group in enumerate(groups):
+            row = payment_group_to_row(group)
+            values = (
+                row.group_code,
+                row.reference,
+                row.transaction_date,
+                row.bill_mark,
+                row.main_mark,
+                row.fee_count,
+                row.statement_count,
+                row.status_text,
+            )
+            for col_index, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignCenter)
+                if col_index == 7:
+                    item.setForeground(Qt.GlobalColor.black)
+                    item.setBackground(_qcolor(row.status_color))
+                table.setItem(row_index, col_index, item)
+
     def _set_running(self, running: bool) -> None:
         self._scan_button.setEnabled(not running)
         self._match_button.setEnabled(not running)
         self._organize_button.setEnabled(not running and self._last_dossier_count > 0)
         self._export_button.setEnabled(not running and self._last_dossier_count > 0)
         self._extract_zip_button.setEnabled(not running)
-        # Cancel chỉ có ý nghĩa hợp tác cho SCAN và LẤY PDF TỪ ZIP (xem
-        # app/ui/workers.py) — ORGANIZE/EXPORT không hỗ trợ huỷ giữa chừng,
-        # chạy ngắn và ghi file một lần nên cố ý không cho bấm Cancel trong
-        # lúc chúng chạy.
+        self._prepare_button.setEnabled(not running)
+        self._payment_group_match_button.setEnabled(not running)
+        self._payment_group_organize_button.setEnabled(not running and self._last_payment_group_count > 0)
+        self._payment_group_export_button.setEnabled(not running and self._last_payment_group_count > 0)
+        # Cancel chỉ có ý nghĩa hợp tác cho SCAN, LẤY PDF TỪ ZIP và CHUẨN BỊ
+        # DỮ LIỆU (xem app/ui/workers.py) — các bước MATCH/ORGANIZE/EXPORT
+        # (cả luồng dossier lẫn luồng Facebook payment group) không hỗ trợ
+        # huỷ giữa chừng, chạy ngắn và ghi file một lần nên cố ý không cho
+        # bấm Cancel trong lúc chúng chạy.
         self._cancel_button.setEnabled(
             running
             and (
                 (self._scan_worker is not None and self._scan_worker.isRunning())
                 or (self._zip_extract_worker is not None and self._zip_extract_worker.isRunning())
+                or (self._prepare_worker is not None and self._prepare_worker.isRunning())
             )
         )
 
@@ -455,6 +704,9 @@ class MainWindow(QMainWindow):
         self._match_button.setEnabled(has_run)
         self._organize_button.setEnabled(self._last_dossier_count > 0)
         self._export_button.setEnabled(self._last_dossier_count > 0)
+        self._payment_group_match_button.setEnabled(has_run)
+        self._payment_group_organize_button.setEnabled(self._last_payment_group_count > 0)
+        self._payment_group_export_button.setEnabled(self._last_payment_group_count > 0)
 
 
 def _qcolor(hex_color: str):

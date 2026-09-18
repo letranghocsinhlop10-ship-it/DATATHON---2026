@@ -1,0 +1,12 @@
+DejaVuSans.ttf — DejaVu Fonts (dựa trên Bitstream Vera Fonts)
+
+Dùng để vẽ chữ tiếng Việt có dấu lên PDF tự sinh
+(app/exporters/statement_extract_pdf.py) — Base14 mặc định của PyMuPDF
+(Helvetica) không có glyph tiếng Việt.
+
+Giấy phép: DejaVu Fonts License (dựa trên Bitstream Vera License) — miễn
+phí, cho phép dùng, sửa và phân phối lại (kể cả trong sản phẩm thương mại),
+chỉ yêu cầu giữ lại thông báo bản quyền. Toàn văn giấy phép:
+https://dejavu-fonts.github.io/License.html
+
+Nguồn: https://dejavu-fonts.github.io/
