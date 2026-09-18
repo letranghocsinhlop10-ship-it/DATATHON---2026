@@ -2,6 +2,7 @@ from openpyxl import load_workbook
 
 from app.export.misa_exporter import write_misa_excel
 from app.export.reconciliation_report import write_reconciliation_report
+from app.export.extracted_data_exporter import HEADERS, write_extracted_data_excel
 from app.ingest import process_pdf_file
 from app.matching.reference_matcher import match_documents
 from app.organizing.categorizer import categorize
@@ -73,3 +74,15 @@ def test_reconciliation_report_has_expected_sheets_and_summary(tmp_path):
 
     missing_refs = [row[0].value for row in wb["Missing"].iter_rows(min_row=2)]
     assert "REFBBB222" in missing_refs
+
+
+def test_raw_extracted_excel_has_one_row_per_pdf(tmp_path):
+    sets = _build_sets(tmp_path)
+    out_path = tmp_path / "extracted_data.xlsx"
+    write_extracted_data_excel(sets, out_path)
+
+    wb = load_workbook(out_path)
+    ws = wb["Extracted Data"]
+    headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    assert headers == HEADERS
+    assert ws.max_row == 5  # header + 3 PDFs in set A + 1 PDF in set B
