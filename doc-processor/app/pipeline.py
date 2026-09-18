@@ -14,6 +14,7 @@ from app.core.config_loader import get_settings
 from app.core.logging_config import configure_logging, get_logger
 from app.export.misa_exporter import write_misa_excel
 from app.export.reconciliation_report import write_reconciliation_report
+from app.export.extracted_data_exporter import write_extracted_data_excel
 from app.ingest import discover_pdf_files, process_pdf_file
 from app.zip_utils import extract_zips_in_place
 from app.matching.reference_matcher import match_documents
@@ -103,6 +104,7 @@ def run_pipeline(
     report(total, total, "Đang xuất Excel...")
     write_misa_excel(document_sets, Path(output_dir) / "misa_import.xlsx")
     write_reconciliation_report(document_sets, Path(output_dir) / "reconciliation_report.xlsx")
+    write_extracted_data_excel(document_sets, Path(output_dir) / "extracted_data.xlsx")
 
     summary = build_summary(document_sets, total)
     report(total, total, "Hoàn tất")
