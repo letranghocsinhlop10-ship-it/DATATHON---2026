@@ -198,6 +198,7 @@ function exportFile(kind) {
 $("processBtn").addEventListener("click", startProcessing);
 $("openFolderBtn").addEventListener("click", openFolder);
 $("exportMisaBtn").addEventListener("click", () => exportFile("misa"));
+$("exportExtractedBtn").addEventListener("click", () => exportFile("extracted"));
 $("exportReconBtn").addEventListener("click", () => exportFile("reconciliation"));
 $("viewErrorsBtn").addEventListener("click", () => loadPreview(true));
 $("viewAllBtn").addEventListener("click", () => loadPreview(false));
