@@ -146,13 +146,15 @@ def organize_document_set(ds: DocumentSet, output_dir: Path, manifest: Manifest)
     for attr, prefix, label in _SLOTS:
         doc: Optional[ExtractedDocument] = getattr(ds, attr)
         if doc is not None:
-            _copy_doc(doc, dest_folder, f"{prefix}_{label}", manifest)
+            # Keep the PDFs separate (never merge), but give every file in a
+            # set the same reference stem plus a stable accounting order.
+            _copy_doc(doc, dest_folder, f"{safe_ref}_{prefix}_{label}", manifest)
         else:
             dest_folder.mkdir(parents=True, exist_ok=True)
             _write_missing_marker(dest_folder, prefix, label)
 
         for n, dup in enumerate(getattr(ds, f"duplicate_{attr}"), start=2):
-            _copy_doc(dup, dest_folder, f"DUPLICATE_{prefix}_{label}_{n}", manifest)
+            _copy_doc(dup, dest_folder, f"{safe_ref}_DUPLICATE_{prefix}_{label}_{n}", manifest)
 
     return dest_folder
 
