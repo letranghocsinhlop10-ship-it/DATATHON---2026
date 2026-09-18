@@ -8,8 +8,7 @@ INPUT/ folder or came from a browser upload.
 
 Extraction is flat (each zip's own file entries go straight into a
 `<zip_stem>/` sibling folder, ignoring the zip's internal directory
-structure) and idempotent (skipped if that folder already exists), so
-re-running the tool doesn't re-extract or duplicate anything.
+structure), recursive (nested zip files are unpacked too), and idempotent.
 """
 from __future__ import annotations
 
@@ -22,7 +21,29 @@ log = get_logger("zip_utils")
 
 # Only these extensions come out of a zip — anything else (readme, images,
 # signature blobs, ...) is skipped rather than dumped into INPUT/.
-_ALLOWED_EXTRACT_SUFFIXES = {".pdf", ".xml"}
+_ALLOWED_EXTRACT_SUFFIXES = {".pdf", ".xml", ".zip"}
+
+
+def _same_bytes(path: Path, content: bytes) -> bool:
+    try:
+        return path.read_bytes() == content
+    except OSError:
+        return False
+
+
+def _unique_target(dest_dir: Path, filename: str, content: bytes) -> tuple[Path, bool]:
+    """Return a collision-safe destination and whether it already exists
+    with identical content. Distinct files with the same basename are kept
+    as ``name__2.pdf``, while reruns do not create endless copies."""
+    original = dest_dir / filename
+    candidate = original
+    n = 2
+    while candidate.exists():
+        if _same_bytes(candidate, content):
+            return candidate, True
+        candidate = original.with_name(f"{original.stem}__{n}{original.suffix}")
+        n += 1
+    return candidate, False
 
 
 def extract_zip_flat(zip_path: str | Path, dest_dir: str | Path) -> list[Path]:
@@ -43,12 +64,13 @@ def extract_zip_flat(zip_path: str | Path, dest_dir: str | Path) -> list[Path]:
                 name = Path(info.filename).name  # flatten: drop any internal path
                 if not name or Path(name).suffix.lower() not in _ALLOWED_EXTRACT_SUFFIXES:
                     continue
-                target = dest_dir / name
-                if target.exists():
-                    log.info("Bỏ qua entry trùng tên khi giải nén %s: %s đã tồn tại", zip_path, target)
+                with zf.open(info) as src:
+                    content = src.read()
+                target, already_present = _unique_target(dest_dir, name, content)
+                if already_present:
                     continue
-                with zf.open(info) as src, open(target, "wb") as out:
-                    out.write(src.read())
+                with open(target, "wb") as out:
+                    out.write(content)
                 extracted.append(target)
     except (zipfile.BadZipFile, OSError) as exc:
         log.warning("Không giải nén được %s: %s", zip_path, exc)
@@ -67,10 +89,19 @@ def extract_zips_in_place(root_dir: str | Path) -> int:
         return 0
 
     newly_extracted = 0
-    for zip_path in sorted(root_dir.rglob("*.zip")):
-        dest_dir = zip_path.parent / zip_path.stem
-        if dest_dir.exists():
-            continue  # already extracted in a previous run
-        if extract_zip_flat(zip_path, dest_dir):
-            newly_extracted += 1
+    processed: set[Path] = set()
+    while True:
+        # Case-insensitive suffix handling matters when batches originate on
+        # Windows and contain names such as INVOICE.ZIP.
+        zip_paths = sorted(
+            p for p in root_dir.rglob("*")
+            if p.is_file() and p.suffix.lower() == ".zip" and p not in processed
+        )
+        if not zip_paths:
+            break
+        for zip_path in zip_paths:
+            processed.add(zip_path)
+            dest_dir = zip_path.parent / zip_path.stem
+            if extract_zip_flat(zip_path, dest_dir):
+                newly_extracted += 1
     return newly_extracted
