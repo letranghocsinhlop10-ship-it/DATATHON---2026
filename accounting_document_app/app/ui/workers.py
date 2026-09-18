@@ -14,12 +14,15 @@ from __future__ import annotations
 import logging
 import threading
 
+from pathlib import Path
+
 from PySide6.QtCore import QThread, Signal
 
+from app.core.zip_extractor import extract_pdfs_from_zips
 from app.services.match_service import MatchResult, MatchService
 from app.services.scan_service import ScanProgress, ScanResult, ScanService
 
-__all__ = ["ScanWorker", "MatchWorker", "OrganizeWorker", "ExportWorker"]
+__all__ = ["ScanWorker", "MatchWorker", "OrganizeWorker", "ExportWorker", "ZipExtractWorker"]
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +116,48 @@ class OrganizeWorker(QThread):
             self.finished_ok.emit(result)
         except Exception as exc:  # noqa: BLE001
             logger.exception("OrganizeWorker lỗi không lường trước")
+            self.failed.emit(str(exc))
+
+
+class ZipExtractWorker(QThread):
+    """Chạy ``extract_pdfs_from_zips`` trong luồng riêng.
+
+    Không thuộc pipeline scan/match/organize/export — đây là bước CHUẨN BỊ
+    dữ liệu tuỳ chọn trước bước SCAN, không cần DB nên không nhận ``service``
+    mà gọi thẳng hàm ở ``app/core/zip_extractor.py``.
+
+    Signals:
+        progress: Phát sau mỗi ZIP, mang ``ZipExtractProgress``.
+        finished_ok: Phát khi xong, mang ``ZipExtractResult``.
+        failed: Phát khi có lỗi không lường trước làm dừng cả worker.
+    """
+
+    progress = Signal(object)
+    finished_ok = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, source_folder: Path | str, dest_folder: Path | str, parent=None) -> None:
+        super().__init__(parent)
+        self._source_folder = source_folder
+        self._dest_folder = dest_folder
+        self._cancel_event = threading.Event()
+
+    def request_cancel(self) -> None:
+        """Yêu cầu dừng sau ZIP đang xử lý — không kill thread."""
+        logger.info("Người dùng yêu cầu huỷ lấy PDF từ ZIP")
+        self._cancel_event.set()
+
+    def run(self) -> None:  # noqa: D102 - override QThread.run
+        try:
+            result = extract_pdfs_from_zips(
+                self._source_folder,
+                self._dest_folder,
+                on_progress=lambda p: self.progress.emit(p),
+                should_cancel=self._cancel_event.is_set,
+            )
+            self.finished_ok.emit(result)
+        except Exception as exc:  # noqa: BLE001 - báo lỗi qua signal, không crash app
+            logger.exception("ZipExtractWorker lỗi không lường trước")
             self.failed.emit(str(exc))
 
 

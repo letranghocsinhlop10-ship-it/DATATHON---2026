@@ -118,6 +118,64 @@ class TestMainWindow:
         assert win._dossier_table.item(0, 0).text() == "HS000001"
 
 
+class TestLayPdfTuZip:
+    """Bấm nút '📦 Lấy PDF từ ZIP' thật — qua ZipExtractWorker (QThread) chứ
+    không gọi thẳng ``extract_pdfs_from_zips`` — theo đúng mẫu đã bắt được
+    bug sqlite3 check_same_thread ở SCAN/MATCH trước đây."""
+
+    def test_bam_nut_giai_nen_dua_pdf_vao_all_data_va_cap_nhat_thu_muc_nguon(
+        self, qtbot, db, classifier_config, extraction_config, app_settings,
+        accounting_config, misa_config, monkeypatch, tmp_path,
+    ):
+        import zipfile
+
+        from PySide6.QtWidgets import QFileDialog
+
+        from app.ui.main_window import MainWindow
+
+        source_dir = tmp_path / "data_tool_read_pdf"
+        source_dir.mkdir()
+        with zipfile.ZipFile(source_dir / "invoice (1).zip", "w") as zf:
+            zf.writestr("invoice.pdf", b"%PDF-1.4 noi dung gia")
+            zf.writestr("invoice.xml", b"<xml/>")
+
+        monkeypatch.setattr(
+            QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(source_dir))
+        )
+
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
+        qtbot.addWidget(win)
+
+        win._on_extract_zip_clicked()
+        assert win._zip_extract_worker is not None
+        with qtbot.waitSignal(win._zip_extract_worker.finished_ok, timeout=10000):
+            pass
+        qtbot.waitUntil(lambda: not win._zip_extract_worker.isRunning(), timeout=2000)
+
+        dest = source_dir / "ALL_DATA"
+        assert dest.is_dir()
+        assert (dest / "invoice.pdf").is_file()
+        assert not (dest / "invoice.xml").exists()
+        # Tích hợp pipeline: ALL_DATA phải được điền thẳng vào ô "Thư mục PDF".
+        assert win._input_folder_edit.text() == str(dest)
+
+    def test_khong_chon_thu_muc_thi_khong_lam_gi(
+        self, qtbot, db, classifier_config, extraction_config, app_settings,
+        accounting_config, misa_config, monkeypatch,
+    ):
+        from PySide6.QtWidgets import QFileDialog
+
+        from app.ui.main_window import MainWindow
+
+        monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: ""))
+
+        win = MainWindow(db, classifier_config, extraction_config, app_settings, accounting_config, misa_config)
+        qtbot.addWidget(win)
+
+        win._on_extract_zip_clicked()
+        assert win._zip_extract_worker is None
+
+
 class TestDossierDetailWindow:
     def test_dung_voi_dossier_thieu_du_lieu(self, qtbot, db):
         from app.ui.dossier_detail_window import DossierDetailWindow

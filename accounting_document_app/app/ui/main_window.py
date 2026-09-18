@@ -47,7 +47,7 @@ from app.services.match_service import MatchService
 from app.services.organize_service import OrganizeService
 from app.services.scan_service import ScanProgress, ScanResult, ScanService
 from app.ui.view_models import dossier_to_row, status_color
-from app.ui.workers import ExportWorker, MatchWorker, OrganizeWorker, ScanWorker
+from app.ui.workers import ExportWorker, MatchWorker, OrganizeWorker, ScanWorker, ZipExtractWorker
 
 __all__ = ["MainWindow"]
 
@@ -95,6 +95,7 @@ class MainWindow(QMainWindow):
         self._match_worker: MatchWorker | None = None
         self._organize_worker: OrganizeWorker | None = None
         self._export_worker: ExportWorker | None = None
+        self._zip_extract_worker: ZipExtractWorker | None = None
         self._dossier_rows: list[Dossier] = []
         self._last_dossier_count = 0
 
@@ -137,6 +138,13 @@ class MainWindow(QMainWindow):
         browse_input = QPushButton("Browse...", self)
         browse_input.clicked.connect(self._on_browse_input)
         row1.addWidget(browse_input)
+        self._extract_zip_button = QPushButton("📦 Lấy PDF từ ZIP", self)
+        self._extract_zip_button.setToolTip(
+            "Chọn thư mục chứa các file .zip — tool tự giải nén, chỉ lấy PDF,\n"
+            "đưa vào <thư mục nguồn>\\ALL_DATA (tự tạo nếu chưa có)."
+        )
+        self._extract_zip_button.clicked.connect(self._on_extract_zip_clicked)
+        row1.addWidget(self._extract_zip_button)
         outer.addLayout(row1)
 
         row2 = QHBoxLayout()
@@ -199,6 +207,56 @@ class MainWindow(QMainWindow):
         if folder:
             self._output_folder_edit.setText(folder)
 
+    def _on_extract_zip_clicked(self) -> None:
+        source = QFileDialog.getExistingDirectory(self, "Chọn thư mục nguồn chứa file ZIP")
+        if not source:
+            return
+
+        dest_path = Path(source) / "ALL_DATA"
+        try:
+            dest_path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.critical(self, "Lỗi", f"Không tạo được thư mục ALL_DATA: {exc}")
+            return
+
+        self._zip_extract_worker = ZipExtractWorker(source, dest_path, parent=self)
+        self._zip_extract_worker.progress.connect(self._on_scan_progress)
+        self._zip_extract_worker.finished_ok.connect(self._on_zip_extract_finished)
+        self._zip_extract_worker.failed.connect(self._on_worker_failed)
+
+        self._set_running(True)
+        self._progress_bar.setValue(0)
+        self._zip_extract_worker.start()
+
+    def _on_zip_extract_finished(self, result) -> None:
+        self._set_running(False)
+        self._input_folder_edit.setText(str(result.dest_folder))
+
+        headline = f"Hoàn tất: {result.zip_scanned} ZIP - {result.pdf_extracted} PDF"
+        if result.zip_errors:
+            headline += f" - {result.zip_errors} lỗi"
+        detail = (
+            f"Đã quét: {result.zip_scanned} file ZIP\n"
+            f"Đã lấy: {result.pdf_extracted} file PDF\n"
+            f"Bỏ qua: {result.non_pdf_skipped} file không phải PDF\n"
+            f"Lỗi: {result.zip_errors} file ZIP"
+        )
+        self._summary_label.setText(
+            f"{headline} — đã đưa vào {result.dest_folder}. Sẵn sàng bấm SCAN PDF."
+        )
+
+        if result.error_messages or result.no_pdf_zip_names:
+            lines = list(result.error_messages)
+            lines += [f"Không tìm thấy PDF trong {name}" for name in result.no_pdf_zip_names]
+            shown = lines[:15]
+            message = detail + "\n\n" + "\n".join(shown)
+            if len(lines) > len(shown):
+                message += f"\n... và {len(lines) - len(shown)} dòng khác (xem logs/app.log)."
+            QMessageBox.warning(self, "Lấy PDF từ ZIP — có cảnh báo", message)
+        else:
+            QMessageBox.information(self, "Lấy PDF từ ZIP", detail)
+        self._update_button_states()
+
     def _on_scan_clicked(self) -> None:
         folder = self._input_folder_edit.text().strip()
         if not folder or not Path(folder).is_dir():
@@ -232,6 +290,8 @@ class MainWindow(QMainWindow):
     def _on_cancel_clicked(self) -> None:
         if self._scan_worker is not None and self._scan_worker.isRunning():
             self._scan_worker.request_cancel()
+        if self._zip_extract_worker is not None and self._zip_extract_worker.isRunning():
+            self._zip_extract_worker.request_cancel()
 
     def _on_scan_progress(self, progress: ScanProgress) -> None:
         self._progress_bar.setMaximum(progress.total)
@@ -377,10 +437,18 @@ class MainWindow(QMainWindow):
         self._match_button.setEnabled(not running)
         self._organize_button.setEnabled(not running and self._last_dossier_count > 0)
         self._export_button.setEnabled(not running and self._last_dossier_count > 0)
-        # Cancel chỉ có ý nghĩa hợp tác cho SCAN (xem app/ui/workers.py) —
-        # ORGANIZE/EXPORT không hỗ trợ huỷ giữa chừng, chạy ngắn và ghi file
-        # một lần nên cố ý không cho bấm Cancel trong lúc chúng chạy.
-        self._cancel_button.setEnabled(running and self._scan_worker is not None and self._scan_worker.isRunning())
+        self._extract_zip_button.setEnabled(not running)
+        # Cancel chỉ có ý nghĩa hợp tác cho SCAN và LẤY PDF TỪ ZIP (xem
+        # app/ui/workers.py) — ORGANIZE/EXPORT không hỗ trợ huỷ giữa chừng,
+        # chạy ngắn và ghi file một lần nên cố ý không cho bấm Cancel trong
+        # lúc chúng chạy.
+        self._cancel_button.setEnabled(
+            running
+            and (
+                (self._scan_worker is not None and self._scan_worker.isRunning())
+                or (self._zip_extract_worker is not None and self._zip_extract_worker.isRunning())
+            )
+        )
 
     def _update_button_states(self) -> None:
         has_run = self._current_run_id is not None

@@ -137,6 +137,44 @@ này ngay (`sqlite3.ProgrammingError`) — sửa bằng `check_same_thread=False
 an toàn vì UI khoá nút bấm suốt lúc worker chạy nên không bao giờ có hai
 thread cùng đụng DB một lúc.
 
+## Lấy PDF từ ZIP ngay trong giao diện
+
+Nhiều nhà cung cấp trả hoá đơn dưới dạng ``invoice (1).zip``,
+``invoice (2).zip``... mỗi ZIP thường chứa 1 PDF + 1 XML (hoặc PDF nằm
+trong thư mục con). Nút **"📦 Lấy PDF từ ZIP"** cạnh ô "Thư mục PDF" làm
+việc này ngay trong GUI — người dùng không cần mở PowerShell/WinRAR/7-Zip:
+
+1. Bấm nút, chọn **thư mục nguồn** (thư mục chứa các file `.zip`).
+2. Tool tự tạo `<thư mục nguồn>\ALL_DATA` nếu chưa có, quét mọi `*.zip`
+   nằm **trực tiếp** trong thư mục nguồn (không đệ quy vào `ALL_DATA`,
+   `data_1`... để tránh giải nén lại chính kết quả của mình).
+3. Với mỗi ZIP, chỉ lấy member có đuôi `.pdf`; XML và các file khác bị bỏ
+   qua. PDF nằm trong thư mục con của ZIP được **làm phẳng** — chỉ lấy
+   `Path(member.filename).name`, ghi thẳng vào `ALL_DATA` — cách này đồng
+   thời chống luôn ZIP path traversal (`../../evil.pdf`).
+4. Sau khi xong, ô "Thư mục PDF" được **tự điền** thành `ALL_DATA` vừa tạo
+   — bấm luôn ① SCAN PDF để đưa thẳng vào pipeline xử lý hiện có, không
+   cần thao tác thủ công nào thêm.
+
+Cài đặt: `app/core/zip_extractor.py` (thuần `zipfile`/`pathlib`/`zlib`
+trong thư viện chuẩn, không thêm dependency mới), chạy qua `ZipExtractWorker`
+(`app/ui/workers.py`) trong `QThread` riêng như mọi bước khác của pipeline.
+
+**Chống trùng khi quét lại cùng ZIP nhiều lần**: không dùng file metadata
+riêng (không ghi gì vào thư mục cài đặt ứng dụng / PyInstaller `_internal`
+— dữ liệu này thuộc về `ALL_DATA` của người dùng, không thuộc về app). Thay
+vào đó, trước khi ghi một PDF, so sánh CRC32 + kích thước với file cùng tên
+đã có sẵn trong `ALL_DATA`: khớp thì coi là đã giải nén trước đó, bỏ qua
+không ghi lại; quét lại 3 lần vẫn chỉ có đúng 1 `invoice.pdf`. Chỉ khi
+CRC32 khác (hai PDF khác nhau nhưng trùng tên) mới được đánh số
+`invoice_2.pdf`, `invoice_3.pdf`...
+
+ZIP hỏng, có mật khẩu, hoặc không đọc được **không làm dừng cả lô** — bị
+đếm vào "Lỗi", ghi log, rồi xử lý tiếp ZIP kế tiếp. ZIP không chứa PDF nào
+được báo riêng ("Không tìm thấy PDF trong ..."), không tính là lỗi. Kết
+thúc hiển thị đúng 4 số theo yêu cầu nghiệp vụ: đã quét / đã lấy / bỏ qua
+(không phải PDF) / lỗi.
+
 ## Ghép bộ hồ sơ — luật K1/K2 cho hoá đơn GTGT
 
 Ghép bằng SO SÁNH CHUỖI TUYỆT ĐỐI duy nhất (`==`), không fuzzy, không AI:
