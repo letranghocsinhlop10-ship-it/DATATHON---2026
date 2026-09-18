@@ -42,7 +42,7 @@ def bundle_pdf(tmp_path):
 class TestChiTachTrangDatCauTruc:
     def test_bia_khong_co_cau_truc_khong_bi_tach(self, classifier_config, bundle_pdf, tmp_path):
         splitter = DebitAdviceSplitter(classifier_config)
-        output_dir = tmp_path / "ALL_DATA" / "_SPLIT_DEBIT_ADVICE"
+        output_dir = tmp_path / "ALL_DATA" / "_DEBIT_SPLIT"
 
         result = splitter.split_folder(bundle_pdf.parent, output_dir)
 
@@ -51,7 +51,7 @@ class TestChiTachTrangDatCauTruc:
 
     def test_file_goc_giu_nguyen_ba_trang(self, classifier_config, bundle_pdf, tmp_path):
         splitter = DebitAdviceSplitter(classifier_config)
-        output_dir = tmp_path / "ALL_DATA" / "_SPLIT_DEBIT_ADVICE"
+        output_dir = tmp_path / "ALL_DATA" / "_DEBIT_SPLIT"
 
         splitter.split_folder(bundle_pdf.parent, output_dir)
 
@@ -67,7 +67,7 @@ class TestFileTachLaVatLyMotTrang:
         self, classifier_config, bundle_pdf, tmp_path
     ):
         splitter = DebitAdviceSplitter(classifier_config)
-        output_dir = tmp_path / "ALL_DATA" / "_SPLIT_DEBIT_ADVICE"
+        output_dir = tmp_path / "ALL_DATA" / "_DEBIT_SPLIT"
 
         result = splitter.split_folder(bundle_pdf.parent, output_dir)
 
@@ -80,7 +80,7 @@ class TestFileTachLaVatLyMotTrang:
 
     def test_ten_file_lay_theo_so_giao_dich(self, classifier_config, bundle_pdf, tmp_path):
         splitter = DebitAdviceSplitter(classifier_config)
-        output_dir = tmp_path / "ALL_DATA" / "_SPLIT_DEBIT_ADVICE"
+        output_dir = tmp_path / "ALL_DATA" / "_DEBIT_SPLIT"
 
         result = splitter.split_folder(bundle_pdf.parent, output_dir)
 
@@ -93,7 +93,7 @@ class TestKhongTuTachLaiDauRa:
         self, classifier_config, bundle_pdf, tmp_path
     ):
         splitter = DebitAdviceSplitter(classifier_config)
-        output_dir = tmp_path / "ALL_DATA" / "_SPLIT_DEBIT_ADVICE"
+        output_dir = tmp_path / "ALL_DATA" / "_DEBIT_SPLIT"
 
         first = splitter.split_folder(bundle_pdf.parent, output_dir)
         # Lần 2: cùng thư mục nguồn (đã có output_dir con) — không được quét
@@ -113,7 +113,7 @@ class TestKetHopVoiScanServiceQuaExcludePaths:
         from app.services.scan_service import ScanService
 
         splitter = DebitAdviceSplitter(classifier_config)
-        output_dir = tmp_path / "ALL_DATA" / "_SPLIT_DEBIT_ADVICE"
+        output_dir = tmp_path / "ALL_DATA" / "_DEBIT_SPLIT"
         split_result = splitter.split_folder(bundle_pdf.parent, output_dir)
 
         scanner = ScanService(db, classifier_config, extraction_config, app_settings)

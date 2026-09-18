@@ -109,7 +109,17 @@ class Document:
 
     @property
     def match_key(self) -> str | None:
-        """Khoá dùng để ghép bộ hồ sơ.
+        """Khoá dùng để ghép bộ hồ sơ Ở LUỒNG DOSSIER GỐC
+        (``app/matching/reference_matcher.py`` — chỉ 3 loại VPBank cố định,
+        xem docstring module đó). CỐ Ý KHÔNG thêm ``VIETINBANK_DEBIT_ADVICE``
+        vào đây dù chứng từ đó cũng có reference: luồng dossier gốc chỉ xử
+        lý 3 loại này, thêm khoá cho loại thứ 4 có thể khiến
+        ``ReferenceMatcher`` tạo ``ReferenceGroup`` rỗng ngoài ý muốn.
+
+        Luồng payment case bank-agnostic (``app/matching/payment_group_matcher.py``)
+        không đọc property này — nó đọc field ``facebook_reference``/
+        ``meta_reference`` trực tiếp qua ``bank_doc_facebook_reference()``.
+        Xem ``display_reference`` bên dưới cho mục đích CHỈ HIỂN THỊ.
 
         Hoá đơn Meta dùng số tham chiếu của chính nó; chứng từ ngân hàng dùng
         reference của nhà cung cấp bóc ra từ phần diễn giải. Tất cả đều đã
@@ -127,6 +137,17 @@ class Document:
         }:
             return self.meta_reference
         return None
+
+    @property
+    def display_reference(self) -> str | None:
+        """Reference để HIỂN THỊ (sheet CHUNG_TU, bảng UI) — bank-agnostic,
+        KHÔNG dùng để quyết định ghép bộ (xem ``match_key``). Khác
+        ``match_key`` ở đúng một điểm: có thêm ``VIETINBANK_DEBIT_ADVICE``
+        (field ``facebook_reference``) để cột Reference không hiện trống
+        với chứng từ VietinBank dù đã trích xuất được."""
+        if self.document_type is DocumentType.VIETINBANK_DEBIT_ADVICE:
+            return self.fields.value("facebook_reference")
+        return self.match_key
 
     @property
     def has_errors(self) -> bool:

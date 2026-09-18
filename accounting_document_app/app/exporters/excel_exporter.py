@@ -169,7 +169,7 @@ class ExcelExporter:
                 document.document_type.value,
                 document.file_name,
                 str(document.file_path),
-                document.match_key,
+                document.display_reference,
                 document.value_of("invoice_number"),
                 document.value_of("invoice_serial"),
                 document.value_of("transaction_id"),

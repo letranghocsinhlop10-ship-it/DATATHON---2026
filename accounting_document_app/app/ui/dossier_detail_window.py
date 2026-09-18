@@ -95,7 +95,9 @@ class DossierDetailWindow(QDialog):
         layout.addLayout(header)
 
         layout.addWidget(self._build_role_box("① META INVOICE", d.meta_document_id, d.meta_count))
-        layout.addWidget(self._build_role_box("② VPBANK DEBIT NOTE", d.debit_document_id, d.debit_count))
+        layout.addWidget(
+            self._build_role_box("② CHỨNG TỪ THANH TOÁN NGÂN HÀNG", d.debit_document_id, d.debit_count)
+        )
         layout.addWidget(self._build_role_box("③ VPBANK VAT INVOICE", d.vat_document_id, d.vat_count))
 
         if d.issues:

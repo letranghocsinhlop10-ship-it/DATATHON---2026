@@ -53,6 +53,26 @@ class TestMatchKey:
         doc = _doc(DocumentType.VPBANK_DEBIT_NOTE, meta_reference=None)
         assert doc.match_key is None
 
+    def test_vietinbank_debit_advice_khong_co_match_key_luong_dossier_goc(self):
+        """CỐ Ý ``None`` — luồng dossier gốc (K1/K2) chỉ xử lý 3 loại VPBank
+        cố định, không phải nơi VietinBank tham gia ghép bộ (xem
+        ``app/matching/payment_group_matcher.py`` cho luồng bank-agnostic)."""
+        doc = _doc(DocumentType.VIETINBANK_DEBIT_ADVICE, facebook_reference="ABCD1234EF")
+        assert doc.match_key is None
+
+
+class TestDisplayReference:
+    """``display_reference`` — CHỈ để hiển thị (CHUNG_TU/UI), không dùng để
+    ghép bộ. Khác ``match_key`` đúng một điểm: có thêm VietinBank."""
+
+    def test_vietinbank_debit_advice_hien_thi_dung_reference(self):
+        doc = _doc(DocumentType.VIETINBANK_DEBIT_ADVICE, facebook_reference="ABCD1234EF")
+        assert doc.display_reference == "ABCD1234EF"
+
+    def test_cac_loai_khac_giu_nguyen_nhu_match_key(self):
+        doc = _doc(DocumentType.VPBANK_DEBIT_NOTE, meta_reference="ABCD1234EF")
+        assert doc.display_reference == doc.match_key == "ABCD1234EF"
+
 
 class TestTruongThieu:
     def test_truong_chua_trich_xuat_tra_none(self):

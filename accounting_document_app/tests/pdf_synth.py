@@ -46,3 +46,27 @@ def write_pdf(path: Path, pages: list[list[str]], *, size: float = 10, width: fl
             y += 16
     doc.save(path)
     doc.close()
+
+
+def write_labeled_pdf(
+    path: Path, pages: list[list[tuple[str, str]]], *, size: float = 9, width: float = 1600
+) -> None:
+    """Ghi PDF theo cặp (nhãn, giá trị) CÙNG DÒNG — dùng cho chứng từ chiến
+    lược ``label_right`` (vd. hoá đơn GTGT VPBank: nhãn cột trái x=33, giá
+    trị cột phải x=260, giống hệt bố cục thật đã reverse-engineer).
+
+    Args:
+        path: Nơi ghi file.
+        pages: Danh sách trang; mỗi trang là danh sách ``(nhãn, giá trị)``,
+            mỗi cặp một dòng.
+    """
+    doc = pymupdf.open()
+    for rows in pages:
+        page = doc.new_page(width=width, height=842)
+        y = 40
+        for label, value in rows:
+            page.insert_text((33, y), label, fontsize=size, fontname="dejavu", fontfile=FONT)
+            page.insert_text((260, y), value, fontsize=size, fontname="dejavu", fontfile=FONT)
+            y += 20
+    doc.save(path)
+    doc.close()

@@ -51,7 +51,7 @@ class TestKhopTuyetDoiDuTienKhacNhau:
         assert len(result.groups) == 1
         group = result.groups[0]
         assert group.status is PaymentGroupStatus.MATCHED_HIGH
-        assert group.facebook_bill is bill
+        assert group.meta_bill is bill
         assert group.main_payment is note
         assert "ABCD1234EF" in group.reason
 
@@ -84,7 +84,7 @@ class TestBoChungTuDayDuGomSaoKe:
         assert len(result.groups) == 1
         group = result.groups[0]
         assert group.status is PaymentGroupStatus.MATCHED_HIGH
-        assert group.facebook_bill is bill
+        assert group.meta_bill is bill
         assert group.main_payment is note
         assert group.statement_rows == [row]
         assert "FT100000001" in group.reason
@@ -131,7 +131,7 @@ class TestKhongMatchNhamTheoAmount:
         result = PaymentGroupMatcher().match([bill_a, note_a, bill_b, note_b])
 
         assert len(result.groups) == 2
-        refs = {g.facebook_reference for g in result.groups}
+        refs = {g.reference for g in result.groups}
         assert refs == {"AAAA111111", "BBBB222222"}
         for group in result.groups:
             assert group.status is PaymentGroupStatus.MATCHED_HIGH
@@ -217,6 +217,6 @@ class TestAmbiguousKhongTuChon:
         assert len(result.groups) == 1
         group = result.groups[0]
         assert group.status is PaymentGroupStatus.MATCHED
-        assert group.facebook_reference is None
-        assert group.facebook_bill is bill
+        assert group.reference is None
+        assert group.meta_bill is bill
         assert group.main_payment is note

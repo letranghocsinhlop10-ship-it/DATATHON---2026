@@ -191,14 +191,22 @@ Ghép bằng SO SÁNH CHUỖI TUYỆT ĐỐI duy nhất (`==`), không fuzzy, kh
   cùng ngày, cùng tiền) — không có đường code nào để gợi ý tự trở thành
   liên kết đã ghép.
 
-## Bộ chứng từ Facebook Payment Group (ZIP lộn xộn -> MATCH -> ORGANIZE -> EXPORT)
+## Payment Case — bank-agnostic (ZIP lộn xộn -> MATCH -> ORGANIZE -> EXPORT)
 
-Bên cạnh luồng dossier META/DEBIT/VAT gốc ở trên, có một luồng THỨ HAI,
-**độc lập**, xử lý nguồn dữ liệu lộn xộn hơn: ZIP hoá đơn, PDF Facebook Bill
-rời, phiếu giao dịch VPBank, **sao kê VPBank nhiều giao dịch**, và **Giấy
-báo nợ VietinBank nhiều trang** (một file có thể là hàng chục giao dịch gộp
-lại). Hai luồng dùng chung `run_id`/`Document` đã SCAN nhưng có matching
-engine, DB, organizer và Excel export RIÊNG — không đụng vào luồng gốc.
+Bên cạnh luồng dossier META/DEBIT/VAT gốc ở trên (VPBank cố định), có một
+luồng THỨ HAI, **độc lập**, xử lý nguồn dữ liệu lộn xộn và NHIỀU NGÂN HÀNG:
+ZIP hoá đơn, PDF Meta Bill rời, phiếu giao dịch VPBank, **sao kê VPBank
+nhiều giao dịch**, và **Giấy báo nợ VietinBank nhiều trang** (một file có
+thể là hàng chục giao dịch gộp lại). Hai luồng dùng chung `run_id`/
+`Document` đã SCAN nhưng có matching engine, organizer và Excel export
+RIÊNG — không đụng vào luồng gốc.
+
+**Nguyên tắc bank-agnostic**: matcher/UI/organizer của luồng này KHÔNG bao
+giờ giả định một ngân hàng cụ thể — tất cả đọc ngân hàng thực tế qua
+`app/matching/payment_group_matcher.py:bank_name_of()`, hàm DUY NHẤT ánh xạ
+`document_type -> "VPBANK"/"VIETINBANK"`. Parser trích xuất field (layout
+PDF khác nhau thật giữa hai ngân hàng) vẫn RIÊNG theo từng ngân hàng — chỉ
+tầng matching/hiển thị/sắp xếp là chung.
 
 ### Quy trình một nút bấm
 
@@ -216,7 +224,7 @@ bước thành một lượt chạy (nút **"📂 Chuẩn bị dữ liệu"** tr
    BÁO NỢ"/"Debit Advice") **vừa có field chính** (dùng lại đúng
    `DocumentClassifier`/`document_rules.yaml`, không luật riêng thứ hai) —
    copy VẬT LÝ (`pymupdf.insert_pdf`, không render lại) từng trang hợp lệ
-   thành một PDF một trang trong `ALL_DATA/_SPLIT_DEBIT_ADVICE/`. File gốc
+   thành một PDF một trang trong `ALL_DATA/_DEBIT_SPLIT/`. File gốc
    nhiều trang giữ nguyên, không đụng tới.
 4. `app/core/bank_statement_parser.py:BankStatementParser` — file nào được
    `DocumentClassifier` xếp loại `BANK_STATEMENT` (khác hẳn 5 loại kia: một
@@ -251,35 +259,62 @@ cũ không tôn trọng dấu `*` chèn giữa `FACEBK` và reference trên mộ
 kê, khiến trích xuất `meta_reference` của `VPBANK_DEBIT_NOTE` âm thầm thất
 bại với định dạng đó.
 
+### Card_last4 -> ngân hàng kỳ vọng (`config/bank_mapping.yaml`)
+
+Meta Bill ghi 4 số cuối thẻ đã thanh toán — `app/core/bank_mapping.py` ánh
+xạ số đó sang ngân hàng PHÁT HÀNH kỳ vọng (tập trung một chỗ, không
+hard-code trong code, thêm ngân hàng/thẻ mới chỉ cần thêm một dòng YAML).
+Đây CHỈ là tín hiệu THAM KHẢO (LEVEL 2, sau exact reference) — dùng để đối
+chiếu, KHÔNG bao giờ dùng để tự loại một liên kết đã khớp reference tuyệt
+đối (xem `PaymentCase.bank_mismatch` bên dưới).
+
 ### Matching engine — thang tín hiệu ưu tiên (`app/matching/payment_group_matcher.py`)
 
-KHÔNG dùng cơ chế K1/K2 (chỉ đúng cho 3 loại cố định) — đây là engine mới,
-theo đúng thứ tự ưu tiên: **facebook_reference tuyệt đối** > mã/số giao
-dịch tuyệt đối > 4 số cuối thẻ > ngày/giờ > số tiền > mô tả tương tự.
+KHÔNG dùng cơ chế K1/K2 (chỉ đúng cho 3 loại VPBank cố định) — đây là engine
+mới, bank-agnostic, theo đúng thứ tự ưu tiên: **reference tuyệt đối** >
+**expected_bank từ thẻ** (đối chiếu, không tự loại) > mã/số giao dịch tuyệt
+đối > 4 số cuối thẻ > ngày/giờ > số tiền.
 
 * Reference khớp tuyệt đối **CHO PHÉP số tiền khác nhau** — không bao giờ
-  reject một liên kết chỉ vì lệch tiền khi reference đã khớp (Facebook Bill
-  hay tính phí khác amount ngân hàng ghi nợ vẫn là chuyện bình thường).
-  Không có reference thì amount **không đủ** để tự match.
+  reject một liên kết chỉ vì lệch tiền khi reference đã khớp (Meta Bill hay
+  tính phí khác amount ngân hàng ghi nợ vẫn là chuyện bình thường). Không có
+  reference thì amount **không đủ** để tự match.
+* **Reference khớp tuyệt đối nhưng ngân hàng thực tế LỆCH với expected_bank
+  (suy từ thẻ)** -> hạ xuống `NEEDS_REVIEW`, nhưng `main_payment`/`fees` VẪN
+  ĐƯỢC GIỮ NGUYÊN — không bao giờ tự loại một liên kết đã khớp reference chỉ
+  vì tín hiệu phụ lệch.
 * Gộp theo khoá `(reference, ngày giao dịch)` — cùng reference nhưng khác
-  ngày là **hai** payment group riêng, không gộp nhầm.
-* Hai trang Giấy báo nợ cùng reference + cùng ngày, một trang "Phí GD..."
-  và một trang "GD thanh toan tai..." -> **một** group duy nhất
-  (`main_payment` + `fees`), không tạo hai folder.
+  ngày là **hai** payment case riêng, không gộp nhầm.
+* Hai trang Giấy báo nợ cùng reference + cùng ngày, một trang "Phí GD..." và
+  một trang "GD thanh toan tai..." -> **một** case duy nhất (`main_payment` +
+  `fees`), không tạo hai folder — áp dụng như nhau cho VPBank lẫn VietinBank.
+* Hoá đơn GTGT (`VPBANK_VAT_INVOICE`) ghép vào case bằng ĐÚNG cơ chế exact
+  reference (+ ngày) như Meta Bill — không bao giờ ghép chỉ vì trùng
+  amount/date; không có reference thì KHÔNG tham gia case nào (chưa có
+  đường fallback amount/date/vendor riêng cho VAT trong bản này).
 * Không có reference: fallback theo số tiền + ngày, nhưng **chỉ tự match
   khi là ứng viên duy nhất mỗi bên** — nhiều ứng viên cùng thoả thì
   `NEEDS_REVIEW`, không bao giờ tự chọn.
 * 4 trạng thái: `MATCHED_HIGH` / `MATCHED` / `NEEDS_REVIEW` / `UNMATCHED`,
-  luôn kèm `match_reason` giải thích được (vd. *"Facebook reference khớp
-  tuyệt đối: ABCD1234EF + mã giao dịch sao kê khớp: FT100000001"*).
+  luôn kèm `match_reason` giải thích được.
+
+### Model `PaymentCase` (`app/models/payment_case.py`)
+
+`reference`, `expected_bank`, `meta_bill`, `main_payment`, `fees` (danh
+sách), `vat_invoice`, `statement_rows`, `status`/`confidence`/`reason`.
+`bank_name` là property tính từ `main_payment`/`fees` qua `bank_name_of()`
+— KHÔNG bao giờ lưu cứng "VPBank" ở đâu khác. `bank_mismatch` là property
+so `expected_bank` với `bank_name` thực tế.
 
 ### Output
 
-* `app/exporters/payment_group_organizer.py` — một `FacebookPaymentGroup` =
-  một thư mục `OUTPUT/FB_<reference>_<ngày>/`, thứ tự file đúng §J (Facebook
-  Bill -> thanh toán chính -> phí -> sao kê/hỗ trợ), cộng `_manifest.txt` và
-  `00_FULL_DOCUMENT_SET.pdf` (gộp bằng `pymupdf.insert_pdf`) khi có ≥ 2 file.
-  Group `NEEDS_REVIEW`/`UNMATCHED` vào thư mục con riêng.
+* `app/exporters/payment_group_organizer.py` — một `PaymentCase` = một thư
+  mục `OUTPUT/<ngày>_<reference>/`, thứ tự file: Meta Bill (1) -> thanh
+  toán chính (2, tên file lấy ĐÚNG ngân hàng thực tế qua `bank_name_of()`,
+  vd. `02_VietinBank_Main_Debit.pdf` hoặc `02_VPBank_Main_Debit.pdf`) -> phí
+  (3) -> hoá đơn GTGT (4, `04_VAT_Invoice.pdf`) -> sao kê/hỗ trợ (5-6), cộng
+  `_manifest.txt` và `00_FULL_DOCUMENT_SET.pdf` (gộp bằng `pymupdf.insert_pdf`)
+  khi có ≥ 2 file. Case `NEEDS_REVIEW`/`UNMATCHED` vào thư mục con riêng.
 * `app/exporters/statement_extract_pdf.py` — khi một dòng sao kê đã khớp
   nhưng KHÔNG có phiếu ngân hàng gốc, sinh một PDF ghi rõ 3 dòng
   **"TRÍCH XUẤT GIAO DỊCH TỪ SAO KÊ / TỰ ĐỘNG TẠO BỞI ACCOUNTING DOCUMENT
@@ -288,9 +323,14 @@ dịch tuyệt đối > 4 số cuối thẻ > ngày/giờ > số tiền > mô t�
   app, xem `NOTICE.txt` cùng thư mục — giấy phép DejaVu, miễn phí kể cả
   thương mại) vì Base14 mặc định của PyMuPDF không có dấu tiếng Việt.
 * `app/exporters/payment_group_exporter.py` — một sheet Excel riêng
-  (`FACEBOOK_PAYMENT_GROUP`, không đụng 4 sheet MISA hiện có), một payment
-  group một dòng, đủ trường đối chiếu theo §K (số tiền Facebook/ngân hàng
-  tách riêng, `match_status`/`match_confidence`/`match_reason`...).
+  (`PAYMENT_CASE`, không đụng 4 sheet MISA hiện có), một payment case một
+  dòng, đủ trường đối chiếu (số tiền Meta/ngân hàng tách riêng, `Bank`,
+  `Expected_Bank`, `Bank_Mismatch`, VAT, `Match_Status`/`Match_Confidence`/
+  `Match_Reason`...).
+* UI: bảng chính bank-agnostic — cột **Reference | Bank | Meta | Debit |
+  Fee | VAT | Trạng thái**. `Debit` = ✓ khi có `main_payment` từ BẤT KỲ
+  ngân hàng nào (VPBank hoặc VietinBank). Lệch `expected_bank` được tô vàng
+  cảnh báo ở cột Bank, không ẩn/xoá dữ liệu.
 
 ### Giới hạn đã biết (minh bạch, không giấu)
 
@@ -301,13 +341,16 @@ dịch tuyệt đối > 4 số cuối thẻ > ngày/giờ > số tiền > mô t�
   trên mô tả nghiệp vụ, đã test kỹ bằng dữ liệu tổng hợp tự dựng đúng hình
   dạng — nhưng **cần đối chiếu lại với file thật đầu tiên** trước khi tin
   tưởng hoàn toàn, giống hệt cách Phase 1 làm với 3 file mẫu ban đầu.
-* **`FacebookPaymentGroup`/`BankTransaction` CHƯA có bảng DB riêng** — khác
-  với `Dossier` (Phase 3, round-trip đầy đủ qua SQLite). Để giữ thay đổi
-  additive và không phình schema trong lần này, kết quả MATCH được giữ
-  trong bộ nhớ (GUI) giữa các bước MATCH -> ORGANIZE -> EXPORT của luồng
-  Facebook — đóng app thì phải chạy lại MATCH (nhưng `Document` bên dưới
-  vẫn nằm trong DB như bình thường, không mất gì cả). `PaymentGroupService`
-  đơn giản, dễ mở rộng thêm bảng sau nếu cần review/sửa tay qua nhiều phiên.
+* **`PaymentCase`/`BankTransaction` CHƯA có bảng DB riêng** — khác với
+  `Dossier` (Phase 3, round-trip đầy đủ qua SQLite). Để giữ thay đổi
+  additive và không phình schema, kết quả MATCH được giữ trong bộ nhớ (GUI)
+  giữa các bước MATCH -> ORGANIZE -> EXPORT của luồng này — đóng app thì
+  phải chạy lại MATCH (nhưng `Document` bên dưới vẫn nằm trong DB như bình
+  thường, không mất gì cả). `PaymentGroupService` đơn giản, dễ mở rộng
+  thêm bảng sau nếu cần review/sửa tay qua nhiều phiên.
+* **VAT Invoice không có đường fallback amount/date/vendor riêng** khi
+  thiếu reference — chỉ ghép được bằng exact reference. Orphan VAT (không
+  reference hoặc không khớp case nào) hiện không tham gia case nào.
 
 ## Ba đặc điểm của chứng từ thật mà code phải xử lý
 

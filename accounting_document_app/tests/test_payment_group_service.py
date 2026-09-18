@@ -65,10 +65,10 @@ class TestPaymentGroupServiceEndToEnd:
         organize_result = service.organize(match_result.groups, tmp_path / "OUTPUT")
         assert organize_result.copied_files == 2
         folder = tmp_path / "OUTPUT" / group.group_code
-        assert (folder / "01_Facebook_Bill.pdf").is_file()
-        assert (folder / "02_VPBank_Debit_Note.pdf").is_file()
+        assert (folder / "01_Meta_Invoice.pdf").is_file()
+        assert (folder / "02_VPBank_Main_Debit.pdf").is_file()
 
         excel_path = service.export(match_result.groups, tmp_path / "payment_groups.xlsx")
         wb = openpyxl.load_workbook(excel_path)
-        sheet = wb["FACEBOOK_PAYMENT_GROUP"]
+        sheet = wb["PAYMENT_CASE"]
         assert sheet.max_row == 2  # header + 1 group

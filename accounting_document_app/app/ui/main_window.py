@@ -43,7 +43,7 @@ from app.database.dossier_repository import DossierRepository
 from app.database.processing_run_repository import ProcessingRunRepository
 from app.models.dossier import Dossier
 from app.models.enums import PaymentGroupStatus
-from app.models.facebook_payment_group import FacebookPaymentGroup
+from app.models.payment_case import PaymentCase
 from app.services.export_service import ExportService
 from app.services.match_service import MatchService
 from app.services.organize_service import OrganizeService
@@ -68,9 +68,9 @@ __all__ = ["MainWindow"]
 logger = logging.getLogger(__name__)
 
 _DOSSIER_COLUMNS = ("Hồ sơ", "Reference", "Ngày GD", "Meta", "Debit", "VAT", "Trạng thái", "Đã review")
-_PAYMENT_GROUP_COLUMNS = (
-    "Payment Group", "Facebook Ref", "Ngày GD", "Bill", "Main", "Fee", "Sao kê", "Trạng thái",
-)
+#: Bank-agnostic — cột "Bank" hiển thị ngân hàng THỰC TẾ (VPBANK/VIETINBANK),
+#: "Debit" = ✓ khi có chứng từ thanh toán chính từ BẤT KỲ ngân hàng nào.
+_PAYMENT_GROUP_COLUMNS = ("Reference", "Bank", "Meta", "Debit", "Fee", "VAT", "Trạng thái")
 
 
 class MainWindow(QMainWindow):
@@ -123,7 +123,7 @@ class MainWindow(QMainWindow):
         self._payment_group_organize_worker: PaymentGroupOrganizeWorker | None = None
         self._payment_group_export_worker: PaymentGroupExportWorker | None = None
         self._bank_transactions: list = []
-        self._payment_groups: list[FacebookPaymentGroup] = []
+        self._payment_groups: list[PaymentCase] = []
         self._last_payment_group_count = 0
 
         self.setWindowTitle("Marketing Accounting Document Tool")
@@ -154,7 +154,7 @@ class MainWindow(QMainWindow):
         self._dossier_table = self._build_dossier_table()
         self._tabs.addTab(self._dossier_table, "Hồ sơ")
         self._payment_group_table = self._build_payment_group_table()
-        self._tabs.addTab(self._payment_group_table, "Facebook Payment Groups")
+        self._tabs.addTab(self._payment_group_table, "Payment Case (Ngân hàng)")
         layout.addWidget(self._tabs)
 
         self.setStatusBar(QStatusBar(self))
@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
         self._prepare_button.setToolTip(
             "Tự động: lấy PDF từ ZIP + PDF rời -> tách Giấy báo nợ nhiều trang\n"
             "-> nhận diện & parse sao kê ngân hàng -> SCAN toàn bộ phần còn lại.\n"
-            "Sau khi xong có thể bấm MATCH/ORGANIZE/EXPORT (Facebook) bên dưới."
+            "Sau khi xong có thể bấm MATCH/ORGANIZE/EXPORT (Ngân hàng) bên dưới."
         )
         self._prepare_button.clicked.connect(self._on_prepare_clicked)
         row.addWidget(self._prepare_button)
@@ -247,18 +247,18 @@ class MainWindow(QMainWindow):
 
     def _build_payment_group_action_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        row.addWidget(QLabel("Facebook Payment Group:"))
+        row.addWidget(QLabel("Payment Case (Ngân hàng):"))
 
-        self._payment_group_match_button = QPushButton("MATCH (Facebook)", self)
+        self._payment_group_match_button = QPushButton("MATCH (Ngân hàng)", self)
         self._payment_group_match_button.clicked.connect(self._on_payment_group_match_clicked)
         row.addWidget(self._payment_group_match_button)
 
-        self._payment_group_organize_button = QPushButton("ORGANIZE (Facebook)", self)
+        self._payment_group_organize_button = QPushButton("ORGANIZE (Ngân hàng)", self)
         self._payment_group_organize_button.setEnabled(False)
         self._payment_group_organize_button.clicked.connect(self._on_payment_group_organize_clicked)
         row.addWidget(self._payment_group_organize_button)
 
-        self._payment_group_export_button = QPushButton("EXPORT (Facebook)", self)
+        self._payment_group_export_button = QPushButton("EXPORT (Ngân hàng)", self)
         self._payment_group_export_button.setEnabled(False)
         self._payment_group_export_button.clicked.connect(self._on_payment_group_export_clicked)
         row.addWidget(self._payment_group_export_button)
@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
             f"Sao kê: {len(result.statement_files)} file / {len(result.bank_transactions)} giao dịch · "
             f"Đã SCAN: {scanned} chứng từ"
         )
-        self._summary_label.setText(summary + " — sẵn sàng bấm MATCH (Facebook) hoặc MATCH + VALIDATE.")
+        self._summary_label.setText(summary + " — sẵn sàng bấm MATCH (Ngân hàng) hoặc MATCH + VALIDATE.")
         self._update_button_states()
 
     def _on_extract_zip_clicked(self) -> None:
@@ -552,7 +552,7 @@ class MainWindow(QMainWindow):
 
     def _on_payment_group_organize_clicked(self) -> None:
         if not self._payment_groups:
-            QMessageBox.warning(self, "Chưa ghép payment group", "Vui lòng bấm MATCH (Facebook) trước.")
+            QMessageBox.warning(self, "Chưa ghép payment group", "Vui lòng bấm MATCH (Ngân hàng) trước.")
             return
 
         output_root = self._output_folder_edit.text().strip()
@@ -587,7 +587,7 @@ class MainWindow(QMainWindow):
 
     def _on_payment_group_export_clicked(self) -> None:
         if not self._payment_groups:
-            QMessageBox.warning(self, "Chưa ghép payment group", "Vui lòng bấm MATCH (Facebook) trước.")
+            QMessageBox.warning(self, "Chưa ghép payment group", "Vui lòng bấm MATCH (Ngân hàng) trước.")
             return
 
         excel_folder = self._output_folder_edit.text().strip() or "."
@@ -652,27 +652,32 @@ class MainWindow(QMainWindow):
                     item.setBackground(_qcolor(row.status_color))
                 table.setItem(row_index, col_index, item)
 
-    def _populate_payment_group_table(self, groups: list[FacebookPaymentGroup]) -> None:
+    def _populate_payment_group_table(self, groups: list[PaymentCase]) -> None:
         table = self._payment_group_table
         table.setRowCount(len(groups))
-        for row_index, group in enumerate(groups):
-            row = payment_group_to_row(group)
+        for row_index, case in enumerate(groups):
+            row = payment_group_to_row(case)
+            # Đúng thứ tự _PAYMENT_GROUP_COLUMNS: Reference|Bank|Meta|Debit|Fee|VAT|Trạng thái
             values = (
-                row.group_code,
                 row.reference,
-                row.transaction_date,
-                row.bill_mark,
-                row.main_mark,
+                row.bank,
+                row.meta_mark,
+                row.debit_mark,
                 row.fee_count,
-                row.statement_count,
+                row.vat_mark,
                 row.status_text,
             )
             for col_index, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setTextAlignment(Qt.AlignCenter)
-                if col_index == 7:
+                if col_index == 6:
                     item.setForeground(Qt.GlobalColor.black)
                     item.setBackground(_qcolor(row.status_color))
+                elif col_index == 1 and row.has_warning:
+                    # Bank lệch expected_bank (thẻ Meta Bill) — cảnh báo màu
+                    # vàng, KHÔNG tự loại liên kết, chỉ để người dùng thấy.
+                    item.setForeground(Qt.GlobalColor.black)
+                    item.setBackground(_qcolor("#f9ab00"))
                 table.setItem(row_index, col_index, item)
 
     def _set_running(self, running: bool) -> None:

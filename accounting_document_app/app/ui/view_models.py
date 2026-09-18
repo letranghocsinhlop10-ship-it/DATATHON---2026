@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from app.models.document import Document
 from app.models.dossier import Dossier
 from app.models.enums import DossierStatus, PaymentGroupStatus, Severity
-from app.models.facebook_payment_group import FacebookPaymentGroup
+from app.models.payment_case import PaymentCase
 from app.utils.date_utils import format_display
 from app.utils.money_utils import format_vnd
 
@@ -147,7 +147,7 @@ def document_to_row(document: Document) -> DocumentRow:
         document_id=document.document_id,
         file_name=document.file_name,
         document_type=document.document_type.value,
-        reference=document.match_key or document.reference_number or "—",
+        reference=document.display_reference or document.reference_number or "—",
         total_amount=format_vnd(document.total_amount) or "—",
         document_date=format_display(document.document_date) or "—",
         status=document.processing_status.value,
@@ -183,29 +183,37 @@ def payment_group_status_label(status: PaymentGroupStatus) -> str:
 
 @dataclass(frozen=True)
 class PaymentGroupRow:
-    """Một dòng trong tab Facebook Payment Group (§L)."""
+    """Một dòng trong bảng chính (bank-agnostic):
+    Reference | Bank | Meta | Debit | Fee | VAT | Status."""
 
     group_code: str
     reference: str
-    transaction_date: str
-    bill_mark: str
-    main_mark: str
+    bank: str
+    meta_mark: str
+    debit_mark: str
     fee_count: str
-    statement_count: str
+    vat_mark: str
     status_text: str
     status_color: str
+    has_warning: bool
 
 
-def payment_group_to_row(group: FacebookPaymentGroup) -> PaymentGroupRow:
-    """Chuyển một ``FacebookPaymentGroup`` thành dòng bảng hiển thị."""
+def payment_group_to_row(case: PaymentCase) -> PaymentGroupRow:
+    """Chuyển một ``PaymentCase`` thành dòng bảng hiển thị.
+
+    ``debit_mark`` = ✓ nếu có ``main_payment`` — bất kể VPBank hay
+    VietinBank (bank-agnostic, không đặc cách ngân hàng nào).
+    """
+    bank = case.bank_name or case.expected_bank or "—"
     return PaymentGroupRow(
-        group_code=group.group_code,
-        reference=group.facebook_reference or "—",
-        transaction_date=format_display(group.transaction_date) or "—",
-        bill_mark=presence_mark(1 if group.facebook_bill else 0),
-        main_mark=presence_mark(1 if group.main_payment else 0),
-        fee_count=str(len(group.fees)) if group.fees else "—",
-        statement_count=str(len(group.statement_rows)) if group.statement_rows else "—",
-        status_text=payment_group_status_label(group.status),
-        status_color=payment_group_status_color(group.status),
+        group_code=case.group_code,
+        reference=case.reference or "—",
+        bank=bank,
+        meta_mark=presence_mark(1 if case.meta_bill else 0),
+        debit_mark=presence_mark(1 if case.main_payment else 0),
+        fee_count=str(len(case.fees)) if case.fees else "—",
+        vat_mark=presence_mark(1 if case.vat_invoice else 0),
+        status_text=payment_group_status_label(case.status),
+        status_color=payment_group_status_color(case.status),
+        has_warning=case.bank_mismatch,
     )

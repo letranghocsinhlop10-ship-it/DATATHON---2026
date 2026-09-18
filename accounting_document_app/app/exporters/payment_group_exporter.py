@@ -1,9 +1,9 @@
-"""Xuất Excel cho Facebook Payment Group — §K yêu cầu nghiệp vụ.
+"""Xuất Excel cho Payment Case — bank-agnostic (VPBank/VietinBank).
 
 Một sheet riêng (KHÔNG đụng vào ``ExcelExporter``/4 sheet MISA hiện có —
-đây là báo cáo bổ sung cho luồng ghép theo Facebook payment group, độc lập
-với luồng dossier META/DEBIT/VAT gốc). Mỗi ``FacebookPaymentGroup`` = một
-dòng, đủ để kế toán đối chiếu KHÔNG cần mở lại từng PDF.
+đây là báo cáo bổ sung cho luồng ghép theo payment case, độc lập với luồng
+dossier META/DEBIT/VAT gốc). Mỗi ``PaymentCase`` = một dòng, đủ để kế toán
+đối chiếu KHÔNG cần mở lại từng PDF.
 """
 
 from __future__ import annotations
@@ -17,10 +17,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from app.matching.payment_group_matcher import bank_doc_txn_id
-from app.models.document import Document
-from app.models.enums import DocumentType
-from app.models.facebook_payment_group import FacebookPaymentGroup
+from app.matching.payment_group_matcher import bank_doc_txn_id, bank_name_of
+from app.models.payment_case import PaymentCase
 
 __all__ = ["PaymentGroupExporter"]
 
@@ -28,37 +26,36 @@ logger = logging.getLogger(__name__)
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F2937")
 _HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
-_SHEET_NAME = "FACEBOOK_PAYMENT_GROUP"
+_SHEET_NAME = "PAYMENT_CASE"
 
 _HEADERS = [
     "Group_Code",
-    "Facebook_Reference",
-    "Facebook_Transaction_ID",
-    "Facebook_Invoice_Number",
-    "Facebook_Paid_Amount",
-    "Facebook_Payment_Date",
+    "Reference",
+    "Meta_Transaction_ID",
+    "Meta_Invoice_Number",
+    "Meta_Paid_Amount",
+    "Meta_Payment_Date",
+    "Expected_Bank",
     "Bank",
+    "Bank_Mismatch",
     "Bank_Transaction_ID",
     "Bank_Main_Amount",
     "Bank_Fee_Amount",
     "Bank_Total_Debit",
     "Bank_Transaction_Date",
     "Card_Last4",
-    "Facebook_Bill_File",
+    "VAT_Invoice_Number",
+    "VAT_Amount",
+    "Meta_Bill_File",
     "Main_Bank_File",
     "Fee_Bank_Files",
+    "VAT_Invoice_File",
     "Statement_Source",
     "Statement_Page",
     "Match_Status",
     "Match_Confidence",
     "Match_Reason",
 ]
-
-
-def _bank_name(doc: Document | None) -> str | None:
-    if doc is None:
-        return None
-    return "VIETINBANK" if doc.document_type is DocumentType.VIETINBANK_DEBIT_ADVICE else "VPBANK"
 
 
 def _num(value: Decimal | None) -> int | float | None:
@@ -68,10 +65,10 @@ def _num(value: Decimal | None) -> int | float | None:
 
 
 class PaymentGroupExporter:
-    """Dựng workbook 1 sheet từ danh sách ``FacebookPaymentGroup``."""
+    """Dựng workbook 1 sheet từ danh sách ``PaymentCase``."""
 
-    def export(self, groups: list[FacebookPaymentGroup], output_path: Path | str) -> Path:
-        """Xuất ``output_path`` — mỗi group một dòng.
+    def export(self, groups: list[PaymentCase], output_path: Path | str) -> Path:
+        """Xuất ``output_path`` — mỗi case một dòng.
 
         Args:
             groups: Kết quả từ ``PaymentGroupMatcher.match()``.
@@ -87,46 +84,52 @@ class PaymentGroupExporter:
         workbook.remove(workbook.active)
         sheet = self._new_sheet(workbook, _SHEET_NAME, _HEADERS)
 
-        for group in groups:
-            sheet.append(self._row(group))
+        for case in groups:
+            sheet.append(self._row(case))
 
         self._autosize(sheet, _HEADERS)
         workbook.save(output_path)
-        logger.info("Đã xuất %s: %s (%d payment group)", _SHEET_NAME, output_path, len(groups))
+        logger.info("Đã xuất %s: %s (%d payment case)", _SHEET_NAME, output_path, len(groups))
         return output_path
 
     @staticmethod
-    def _row(group: FacebookPaymentGroup) -> list:
-        bill = group.facebook_bill
-        main = group.main_payment
-        fee_amount = sum((f.total_amount for f in group.fees if f.total_amount is not None), Decimal(0))
-        statement = group.statement_rows[0] if group.statement_rows else None
+    def _row(case: PaymentCase) -> list:
+        bill = case.meta_bill
+        main = case.main_payment
+        vat = case.vat_invoice
+        fee_amount = sum((f.total_amount for f in case.fees if f.total_amount is not None), Decimal(0))
+        statement = case.statement_rows[0] if case.statement_rows else None
         main_bank_file = (
             main.file_name if main is not None else ("(trích xuất từ sao kê)" if statement else None)
         )
 
         return [
-            group.group_code,
-            group.facebook_reference,
+            case.group_code,
+            case.reference,
             bill.value_of("transaction_id") if bill else None,
             bill.value_of("invoice_number") if bill else None,
             _num(bill.total_amount) if bill else None,
             bill.document_date if bill else None,
-            _bank_name(main) or _bank_name(group.fees[0] if group.fees else None),
+            case.expected_bank,
+            case.bank_name or (bank_name_of(main) if main else None),
+            "x" if case.bank_mismatch else "",
             bank_doc_txn_id(main) if main else None,
             _num(main.total_amount) if main else None,
-            _num(fee_amount) if group.fees else None,
-            _num(group.bank_total_debit),
-            group.transaction_date,
+            _num(fee_amount) if case.fees else None,
+            _num(case.bank_total_debit),
+            case.transaction_date,
             (main.card_last4 if main else None) or (bill.card_last4 if bill else None),
+            vat.value_of("invoice_number") if vat else None,
+            _num(vat.total_amount) if vat else None,
             bill.file_name if bill else None,
             main_bank_file,
-            "; ".join(f.file_name for f in group.fees) or None,
+            "; ".join(f.file_name for f in case.fees) or None,
+            vat.file_name if vat else None,
             statement.source_pdf.name if statement and statement.source_pdf else None,
             statement.source_page if statement else None,
-            group.status.value,
-            group.confidence,
-            group.reason,
+            case.status.value,
+            case.confidence,
+            case.reason,
         ]
 
     @staticmethod

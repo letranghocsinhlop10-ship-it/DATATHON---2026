@@ -232,7 +232,8 @@ class TestChuanBiDuLieuVaPaymentGroup:
         qtbot.waitUntil(lambda: not win._payment_group_match_worker.isRunning(), timeout=2000)
 
         assert win._payment_group_table.rowCount() == 1
-        assert win._payment_group_table.item(0, 1).text() == "ZIPREF001"  # cột Facebook Ref
+        assert win._payment_group_table.item(0, 0).text() == "ZIPREF001"  # cột Reference
+        assert win._payment_group_table.item(0, 1).text() == "VPBANK"  # cột Bank
         assert win._payment_group_organize_button.isEnabled() is True
         assert win._payment_group_export_button.isEnabled() is True
 

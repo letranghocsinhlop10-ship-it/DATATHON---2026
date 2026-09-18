@@ -126,7 +126,7 @@ class PrepareDataService:
         # cùng một lượt, không chỉ nội dung lấy ra từ ZIP.
         loose_result = collect_loose_pdfs(source, all_data)
 
-        split_output = all_data / "_SPLIT_DEBIT_ADVICE"
+        split_output = all_data / "_DEBIT_SPLIT"
         splitter = DebitAdviceSplitter(self._classifier_config, reader=self._reader)
         split_result = splitter.split_folder(
             all_data, split_output,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.models.enums import DocumentType, DossierStatus, PaymentGroupStatus
-from app.models.facebook_payment_group import FacebookPaymentGroup
+from app.models.payment_case import PaymentCase
 from app.ui.view_models import (
     StatusColor,
     dossier_to_row,
@@ -95,25 +95,44 @@ class TestPaymentGroupToRow:
     def test_khop_cao_la_xanh_va_du_mark(self):
         bill = meta("ABCD1234EF")
         main = make_doc(DocumentType.VPBANK_DEBIT_NOTE, meta_reference="ABCD1234EF")
-        group = FacebookPaymentGroup(
-            group_code="FB_ABCD1234EF_2026-08-01",
-            facebook_reference="ABCD1234EF",
+        case = PaymentCase(
+            group_code="2026-08-01_ABCD1234EF",
+            reference="ABCD1234EF",
             transaction_date=date(2026, 8, 1),
-            facebook_bill=bill,
+            meta_bill=bill,
             main_payment=main,
             status=PaymentGroupStatus.MATCHED_HIGH,
         )
-        row = payment_group_to_row(group)
-        assert row.bill_mark == "✓"
-        assert row.main_mark == "✓"
+        row = payment_group_to_row(case)
+        assert row.meta_mark == "✓"
+        assert row.debit_mark == "✓"
+        assert row.bank == "VPBANK"
         assert row.status_color == StatusColor.GREEN
         assert payment_group_status_color(PaymentGroupStatus.MATCHED_HIGH) == StatusColor.GREEN
+
+    def test_debit_mark_dung_ca_voi_vietinbank(self):
+        main = make_doc(DocumentType.VIETINBANK_DEBIT_ADVICE, transaction_number="1")
+        case = PaymentCase(group_code="X", main_payment=main, status=PaymentGroupStatus.MATCHED_HIGH)
+        row = payment_group_to_row(case)
+        assert row.debit_mark == "✓"
+        assert row.bank == "VIETINBANK"
 
     def test_needs_review_la_vang(self):
         assert payment_group_status_color(PaymentGroupStatus.NEEDS_REVIEW) == StatusColor.YELLOW
 
     def test_khong_co_bill_hien_thi_dau_x(self):
-        group = FacebookPaymentGroup(group_code="FB_X", status=PaymentGroupStatus.UNMATCHED)
-        row = payment_group_to_row(group)
-        assert row.bill_mark == "✗"
+        case = PaymentCase(group_code="X", status=PaymentGroupStatus.UNMATCHED)
+        row = payment_group_to_row(case)
+        assert row.meta_mark == "✗"
         assert row.reference == "—"
+        assert row.bank == "—"
+
+    def test_bank_mismatch_bao_co_warning(self):
+        bill = meta("ABCD1234EF", card_last4="1234")
+        main = make_doc(DocumentType.VIETINBANK_DEBIT_ADVICE, transaction_number="1")
+        case = PaymentCase(
+            group_code="X", reference="ABCD1234EF", meta_bill=bill, main_payment=main,
+            expected_bank="VPBANK", status=PaymentGroupStatus.NEEDS_REVIEW,
+        )
+        row = payment_group_to_row(case)
+        assert row.has_warning is True

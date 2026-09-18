@@ -1,22 +1,24 @@
-"""Sắp xếp PDF theo Facebook Payment Group — §J yêu cầu nghiệp vụ.
+"""Sắp xếp PDF theo Payment Case — bank-agnostic (VPBank/VietinBank).
 
-Một ``FacebookPaymentGroup`` = một thư mục::
+Một ``PaymentCase`` = một thư mục::
 
     OUTPUT/
-        FB_<reference>_<ngày>/
+        <ngày>_<reference>/
             00_FULL_DOCUMENT_SET.pdf   (gộp, tuỳ chọn — xem create_merged)
-            01_Facebook_Bill.pdf
-            02_Main_Debit_Advice.pdf (hoặc VPBank_Debit_Note.pdf)
-            03_Bank_Fee_01.pdf
-            04_Bank_Fee_02.pdf
+            01_Meta_Invoice.pdf
+            02_<Ngân_hàng>_Main_Debit.pdf   (vd. VPBank / VietinBank)
+            03_<Ngân_hàng>_Bank_Fee.pdf
+            04_VAT_Invoice.pdf
             05_Bank_Statement_Extract.pdf   (tự sinh — chỉ khi KHÔNG có
-                                              phiếu ngân hàng gốc, xem §I)
+                                              phiếu ngân hàng gốc)
             _manifest.txt
         NEEDS_REVIEW/
-            FB_.../...
+            <ngày>_<reference>/...
 
-Thứ tự ưu tiên đúng §J: Facebook Bill (1) -> thanh toán chính (2) -> phí
-(3) -> sao kê/hỗ trợ (4) -> khác (5).
+Thứ tự ưu tiên: Meta Bill (1) -> thanh toán chính (2) -> phí (3) -> hoá đơn
+GTGT (4) -> sao kê/hỗ trợ (5) -> khác (6). Tên file lấy ĐÚNG ngân hàng thực
+tế qua ``bank_name_of()`` — không bao giờ hard-code "VPBank" cho mọi
+trường hợp.
 
 CHỈ ``copy_preserving`` (dựa trên ``shutil.copy2``) — không bao giờ sửa,
 xoá hay di chuyển file gốc, giống hệt nguyên tắc của ``PdfOrganizer``.
@@ -31,18 +33,27 @@ from pathlib import Path
 import pymupdf
 
 from app.exporters.statement_extract_pdf import generate_statement_extract_pdf
-from app.models.enums import DocumentType, PaymentGroupStatus
-from app.models.facebook_payment_group import FacebookPaymentGroup
+from app.matching.payment_group_matcher import bank_name_of
+from app.models.enums import PaymentGroupStatus
+from app.models.payment_case import PaymentCase
 from app.utils.file_utils import copy_preserving, safe_folder_name, unique_path
 
 __all__ = ["PaymentGroupOrganizeResult", "PaymentGroupOrganizer"]
 
 logger = logging.getLogger(__name__)
 
+#: Tên hiển thị (title-case) cho từng mã ngân hàng nội bộ — chỉ dùng để đặt
+#: tên file cho dễ đọc, KHÔNG ảnh hưởng logic ghép/so khớp.
+_BANK_DISPLAY_NAME = {"VPBANK": "VPBank", "VIETINBANK": "VietinBank"}
+
+
+def _bank_display_name(bank: str | None) -> str:
+    return _BANK_DISPLAY_NAME.get(bank or "", bank or "Bank")
+
 
 @dataclass
 class PaymentGroupOrganizeResult:
-    """Kết quả một lượt sắp xếp payment group."""
+    """Kết quả một lượt sắp xếp payment case."""
 
     group_folders: dict[str, Path] = field(default_factory=dict)
     copied_files: int = 0
@@ -52,13 +63,13 @@ class PaymentGroupOrganizeResult:
 
 
 class PaymentGroupOrganizer:
-    """Copy PDF gốc vào thư mục OUTPUT theo từng payment group.
+    """Copy PDF gốc vào thư mục OUTPUT theo từng payment case.
 
     Args:
         output_root: Thư mục gốc để tạo cây OUTPUT.
         create_merged: Có ghi thêm ``00_FULL_DOCUMENT_SET.pdf`` (gộp toàn bộ
-            file của group bằng ``pymupdf.insert_pdf``) khi group có từ 2
-            file trở lên hay không.
+            file của case bằng ``pymupdf.insert_pdf``) khi case có từ 2 file
+            trở lên hay không.
     """
 
     def __init__(self, output_root: Path | str, *, create_merged: bool = True) -> None:
@@ -66,8 +77,8 @@ class PaymentGroupOrganizer:
         self._generate_dir = self._output_root / "_GENERATED"
         self._create_merged = create_merged
 
-    def organize(self, groups: list[FacebookPaymentGroup]) -> PaymentGroupOrganizeResult:
-        """Sắp xếp toàn bộ payment group của một lô.
+    def organize(self, groups: list[PaymentCase]) -> PaymentGroupOrganizeResult:
+        """Sắp xếp toàn bộ payment case của một lô.
 
         Args:
             groups: Kết quả từ ``PaymentGroupMatcher.match()``.
@@ -76,26 +87,27 @@ class PaymentGroupOrganizer:
             ``PaymentGroupOrganizeResult``.
         """
         result = PaymentGroupOrganizeResult()
-        for group in groups:
-            self._organize_one(group, result)
+        for case in groups:
+            self._organize_one(case, result)
         return result
 
     # -------------------------------------------------------------- nội bộ
 
-    def _organize_one(self, group: FacebookPaymentGroup, result: PaymentGroupOrganizeResult) -> None:
-        entries = self._collect_entries(group, result)
+    def _organize_one(self, case: PaymentCase, result: PaymentGroupOrganizeResult) -> None:
+        entries = self._collect_entries(case, result)
         if not entries:
             return
 
-        target_dir = self._target_dir(group)
+        target_dir = self._target_dir(case)
         entries.sort(key=lambda e: e[0])
 
         copied_paths: list[Path] = []
         manifest_lines = [
-            f"Payment group: {group.group_code}",
-            f"Facebook reference: {group.facebook_reference or '(không có)'}",
-            f"Trạng thái: {group.status.value}",
-            f"Lý do: {group.reason}",
+            f"Payment case: {case.group_code}",
+            f"Reference: {case.reference or '(không có)'}",
+            f"Ngân hàng: {case.bank_name or '(không rõ)'} (kỳ vọng: {case.expected_bank or '(không có thẻ)'})",
+            f"Trạng thái: {case.status.value}",
+            f"Lý do: {case.reason}",
             "",
         ]
         for index, (_, label, source) in enumerate(entries, start=1):
@@ -115,62 +127,62 @@ class PaymentGroupOrganizer:
             return
 
         self._write_text(target_dir / "_manifest.txt", "\n".join(manifest_lines))
-        result.group_folders[group.group_code] = target_dir
+        result.group_folders[case.group_code] = target_dir
 
         if self._create_merged and len(copied_paths) > 1:
-            self._write_merged(group, copied_paths, target_dir, result)
+            self._write_merged(case, copied_paths, target_dir, result)
 
     def _collect_entries(
-        self, group: FacebookPaymentGroup, result: PaymentGroupOrganizeResult
+        self, case: PaymentCase, result: PaymentGroupOrganizeResult
     ) -> list[tuple[int, str, Path]]:
         entries: list[tuple[int, str, Path]] = []
 
-        if group.facebook_bill is not None:
-            entries.append((1, "Facebook_Bill", group.facebook_bill.file_path))
+        if case.meta_bill is not None:
+            entries.append((1, "Meta_Invoice", case.meta_bill.file_path))
 
-        if group.main_payment is not None:
-            label = (
-                "Main_Debit_Advice"
-                if group.main_payment.document_type is DocumentType.VIETINBANK_DEBIT_ADVICE
-                else "VPBank_Debit_Note"
-            )
-            entries.append((2, label, group.main_payment.file_path))
-        elif group.statement_rows:
-            # §I: không có phiếu ngân hàng gốc nhưng đã khớp được dòng sao
-            # kê -> sinh PDF trích xuất RÕ RÀNG không phải chứng từ gốc.
-            txn = group.statement_rows[0]
-            gen_name = f"VPBANK_TRANSACTION_EXTRACT_{txn.transaction_id or group.group_code}.pdf"
+        if case.main_payment is not None:
+            bank_label = _bank_display_name(bank_name_of(case.main_payment))
+            entries.append((2, f"{bank_label}_Main_Debit", case.main_payment.file_path))
+        elif case.statement_rows:
+            # Không có phiếu ngân hàng gốc nhưng đã khớp được dòng sao kê ->
+            # sinh PDF trích xuất RÕ RÀNG không phải chứng từ gốc.
+            txn = case.statement_rows[0]
+            gen_name = f"VPBANK_TRANSACTION_EXTRACT_{txn.transaction_id or case.group_code}.pdf"
             gen_dest = unique_path(self._generate_dir / safe_folder_name(gen_name))
             try:
                 generate_statement_extract_pdf(txn, gen_dest)
                 entries.append((2, "Bank_Statement_Extract", gen_dest))
                 result.generated_extracts += 1
             except OSError:
-                logger.exception("Không sinh được PDF trích xuất sao kê cho %s", group.group_code)
-                result.errors.append(f"Không sinh được PDF trích xuất sao kê cho {group.group_code}")
+                logger.exception("Không sinh được PDF trích xuất sao kê cho %s", case.group_code)
+                result.errors.append(f"Không sinh được PDF trích xuất sao kê cho {case.group_code}")
 
-        fee_count = len(group.fees)
-        for index, fee in enumerate(group.fees, start=1):
+        fee_count = len(case.fees)
+        for index, fee in enumerate(case.fees, start=1):
+            bank_label = _bank_display_name(bank_name_of(fee))
             suffix = f"_{index:02d}" if fee_count > 1 else ""
-            entries.append((3, f"Bank_Fee{suffix}", fee.file_path))
+            entries.append((3, f"{bank_label}_Bank_Fee{suffix}", fee.file_path))
 
-        support_count = len(group.supporting)
-        for index, doc in enumerate(group.supporting, start=1):
+        if case.vat_invoice is not None:
+            entries.append((4, "VAT_Invoice", case.vat_invoice.file_path))
+
+        support_count = len(case.supporting)
+        for index, doc in enumerate(case.supporting, start=1):
             suffix = f"_{index:02d}" if support_count > 1 else ""
-            entries.append((5, f"Other_Supporting{suffix}", doc.file_path))
+            entries.append((6, f"Other_Supporting{suffix}", doc.file_path))
 
         return entries
 
-    def _target_dir(self, group: FacebookPaymentGroup) -> Path:
-        folder_name = safe_folder_name(group.group_code)
+    def _target_dir(self, case: PaymentCase) -> Path:
+        folder_name = safe_folder_name(case.group_code)
         base = self._output_root
-        if group.status in (PaymentGroupStatus.NEEDS_REVIEW, PaymentGroupStatus.UNMATCHED):
+        if case.status in (PaymentGroupStatus.NEEDS_REVIEW, PaymentGroupStatus.UNMATCHED):
             base = self._output_root / "NEEDS_REVIEW"
         return base / folder_name
 
     def _write_merged(
         self,
-        group: FacebookPaymentGroup,
+        case: PaymentCase,
         copied_paths: list[Path],
         target_dir: Path,
         result: PaymentGroupOrganizeResult,
@@ -187,8 +199,8 @@ class PaymentGroupOrganizer:
                 merged.close()
             result.merged_files += 1
         except Exception:  # noqa: BLE001 - gộp lỗi không được làm mất các file đã copy
-            logger.exception("Không gộp được file cho payment group %s", group.group_code)
-            result.errors.append(f"Không gộp được file cho {group.group_code}")
+            logger.exception("Không gộp được file cho payment case %s", case.group_code)
+            result.errors.append(f"Không gộp được file cho {case.group_code}")
 
     @staticmethod
     def _write_text(path: Path, content: str) -> None:

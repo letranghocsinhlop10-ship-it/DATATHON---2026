@@ -1,0 +1,16 @@
+# Ánh xạ "4 số cuối thẻ -> ngân hàng phát hành". Dùng làm tín hiệu
+# "expected_bank" khi so khớp Facebook/Meta Bill với chứng từ ngân hàng:
+# nếu hoá đơn Meta ghi thẻ có 4 số cuối X, ta KỲ VỌNG chứng từ ngân hàng
+# khớp reference của nó phải đến từ đúng ngân hàng phát hành thẻ X.
+#
+# CHỈ dùng làm tín hiệu THAM KHẢO (LEVEL 2 sau exact reference) — không bao
+# giờ dùng để TỰ LOẠI một liên kết đã khớp reference tuyệt đối. Lệch ngân
+# hàng dù reference khớp -> NEEDS_REVIEW, không bao giờ tự huỷ liên kết.
+#
+# Thêm ngân hàng/thẻ mới: thêm một dòng ở đây, không sửa code.
+
+version: 1
+
+card_last4_to_bank:
+  "4966": VPBANK
+  "2960": VIETINBANK

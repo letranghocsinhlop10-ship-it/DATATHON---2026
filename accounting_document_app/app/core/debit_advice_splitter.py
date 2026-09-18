@@ -17,7 +17,7 @@ gốc sang file mới — không render lại, không đổi nội dung. File g�
 giờ bị sửa/xoá/di chuyển.
 
 File tách ra được ghi vào một thư mục "preprocessing" nằm CẠNH thư mục
-nguồn của người dùng (vd. ``<ALL_DATA>/_SPLIT_DEBIT_ADVICE/``) — không bao
+nguồn của người dùng (vd. ``<ALL_DATA>/_DEBIT_SPLIT/``) — không bao
 giờ ghi vào thư mục cài đặt ứng dụng / PyInstaller ``_internal``.
 """
 

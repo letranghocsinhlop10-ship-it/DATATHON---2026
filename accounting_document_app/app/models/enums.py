@@ -110,7 +110,7 @@ class DossierStatus(str, Enum):
 
 class PaymentRole(str, Enum):
     """Vai trò của một chứng từ/giao dịch bên trong một
-    ``FacebookPaymentGroup`` (xem ``app/matching/payment_group_matcher.py``).
+    ``PaymentCase`` (xem ``app/matching/payment_group_matcher.py``).
     """
 
     FACEBOOK_BILL = "FACEBOOK_BILL"
@@ -121,7 +121,7 @@ class PaymentRole(str, Enum):
 
 
 class PaymentGroupStatus(str, Enum):
-    """Trạng thái khớp của một ``FacebookPaymentGroup``.
+    """Trạng thái khớp của một ``PaymentCase``.
 
     Thứ tự tín hiệu ưu tiên xem §G — reference tuyệt đối luôn mạnh hơn số
     tiền; không bao giờ tự chọn khi có nhiều ứng viên mơ hồ.

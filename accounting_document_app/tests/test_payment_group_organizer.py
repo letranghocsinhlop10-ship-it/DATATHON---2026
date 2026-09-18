@@ -1,4 +1,4 @@
-"""Test sắp xếp PDF theo Facebook Payment Group (§J)."""
+"""Test sắp xếp PDF theo Payment Case — bank-agnostic (VPBank/VietinBank)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 from app.core.bank_statement_parser import BankTransaction
 from app.exporters.payment_group_organizer import PaymentGroupOrganizer
 from app.models.enums import DocumentType, PaymentGroupStatus
-from app.models.facebook_payment_group import FacebookPaymentGroup
+from app.models.payment_case import PaymentCase
 from matching_helpers import make_doc
 from pdf_synth import FONT, write_pdf
 
@@ -28,39 +28,44 @@ def _doc_with_file(tmp_path, document_type, name, **fields):
 
 
 class TestBoDuDuDayDu:
-    def test_dung_thu_tu_va_ten_file(self, tmp_path):
+    def test_dung_thu_tu_va_ten_file_theo_dung_ngan_hang(self, tmp_path):
         bill = _doc_with_file(tmp_path, DocumentType.META_INVOICE, "bill.pdf", reference_number="ABCD1234EF")
         main = _doc_with_file(tmp_path, DocumentType.VPBANK_DEBIT_NOTE, "note.pdf", meta_reference="ABCD1234EF")
-        fee = _doc_with_file(tmp_path, DocumentType.VIETINBANK_DEBIT_ADVICE, "fee.pdf", facebook_reference="ABCD1234EF")
+        fee = _doc_with_file(
+            tmp_path, DocumentType.VIETINBANK_DEBIT_ADVICE, "fee.pdf", facebook_reference="ABCD1234EF"
+        )
+        vat = _doc_with_file(tmp_path, DocumentType.VPBANK_VAT_INVOICE, "vat.pdf", meta_reference="ABCD1234EF")
 
-        group = FacebookPaymentGroup(
-            group_code="FB_ABCD1234EF_2026-08-01",
-            facebook_reference="ABCD1234EF",
+        case = PaymentCase(
+            group_code="2026-08-01_ABCD1234EF",
+            reference="ABCD1234EF",
             transaction_date=date(2026, 8, 1),
-            facebook_bill=bill,
+            meta_bill=bill,
             main_payment=main,
             fees=[fee],
+            vat_invoice=vat,
             status=PaymentGroupStatus.MATCHED_HIGH,
             reason="test",
         )
 
         organizer = PaymentGroupOrganizer(tmp_path / "OUTPUT")
-        result = organizer.organize([group])
+        result = organizer.organize([case])
 
-        folder = tmp_path / "OUTPUT" / "FB_ABCD1234EF_2026-08-01"
-        assert (folder / "01_Facebook_Bill.pdf").is_file()
-        assert (folder / "02_VPBank_Debit_Note.pdf").is_file()
-        assert (folder / "03_Bank_Fee.pdf").is_file()
+        folder = tmp_path / "OUTPUT" / "2026-08-01_ABCD1234EF"
+        assert (folder / "01_Meta_Invoice.pdf").is_file()
+        assert (folder / "02_VPBank_Main_Debit.pdf").is_file()  # main là VPBANK_DEBIT_NOTE
+        assert (folder / "03_VietinBank_Bank_Fee.pdf").is_file()  # fee là VIETINBANK_DEBIT_ADVICE
+        assert (folder / "04_VAT_Invoice.pdf").is_file()
         assert (folder / "_manifest.txt").is_file()
-        assert result.copied_files == 3
+        assert result.copied_files == 4
 
     def test_file_goc_khong_bi_sua(self, tmp_path):
         bill = _doc_with_file(tmp_path, DocumentType.META_INVOICE, "bill.pdf", reference_number="ABCD1234EF")
         original_bytes = bill.file_path.read_bytes()
-        group = FacebookPaymentGroup(
-            group_code="FB_ABCD1234EF_2026-08-01", facebook_bill=bill, status=PaymentGroupStatus.UNMATCHED,
+        case = PaymentCase(
+            group_code="2026-08-01_ABCD1234EF", meta_bill=bill, status=PaymentGroupStatus.UNMATCHED,
         )
-        PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([group])
+        PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([case])
         assert bill.file_path.read_bytes() == original_bytes
 
 
@@ -68,12 +73,12 @@ class TestFileGop:
     def test_gop_khi_co_tu_hai_file_tro_len(self, tmp_path):
         bill = _doc_with_file(tmp_path, DocumentType.META_INVOICE, "bill.pdf", reference_number="ABCD1234EF")
         main = _doc_with_file(tmp_path, DocumentType.VPBANK_DEBIT_NOTE, "note.pdf", meta_reference="ABCD1234EF")
-        group = FacebookPaymentGroup(
-            group_code="FB_ABCD1234EF_2026-08-01",
-            facebook_bill=bill, main_payment=main, status=PaymentGroupStatus.MATCHED_HIGH,
+        case = PaymentCase(
+            group_code="2026-08-01_ABCD1234EF",
+            meta_bill=bill, main_payment=main, status=PaymentGroupStatus.MATCHED_HIGH,
         )
-        result = PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([group])
-        merged = tmp_path / "OUTPUT" / "FB_ABCD1234EF_2026-08-01" / "00_FULL_DOCUMENT_SET.pdf"
+        result = PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([case])
+        merged = tmp_path / "OUTPUT" / "2026-08-01_ABCD1234EF" / "00_FULL_DOCUMENT_SET.pdf"
         assert merged.is_file()
         assert result.merged_files == 1
         doc = pymupdf.open(merged)
@@ -84,10 +89,10 @@ class TestFileGop:
 
     def test_khong_gop_khi_chi_co_mot_file(self, tmp_path):
         bill = _doc_with_file(tmp_path, DocumentType.META_INVOICE, "bill.pdf", reference_number="ABCD1234EF")
-        group = FacebookPaymentGroup(group_code="FB_X", facebook_bill=bill, status=PaymentGroupStatus.UNMATCHED)
-        result = PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([group])
+        case = PaymentCase(group_code="X", meta_bill=bill, status=PaymentGroupStatus.UNMATCHED)
+        result = PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([case])
         assert result.merged_files == 0
-        assert not (tmp_path / "OUTPUT" / "FB_X" / "00_FULL_DOCUMENT_SET.pdf").exists()
+        assert not (tmp_path / "OUTPUT" / "X" / "00_FULL_DOCUMENT_SET.pdf").exists()
 
 
 class TestSinhPdfTrichXuatKhiThieuPhieuGoc:
@@ -99,13 +104,13 @@ class TestSinhPdfTrichXuatKhiThieuPhieuGoc:
             running_balance=Decimal("1"), facebook_reference="ABCD1234EF",
             source_pdf=tmp_path / "sao_ke.pdf", source_page=1,
         )
-        group = FacebookPaymentGroup(
-            group_code="FB_ABCD1234EF_2026-08-01", facebook_bill=bill, main_payment=None,
+        case = PaymentCase(
+            group_code="2026-08-01_ABCD1234EF", meta_bill=bill, main_payment=None,
             statement_rows=[row], status=PaymentGroupStatus.MATCHED,
         )
-        result = PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([group])
+        result = PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([case])
 
-        folder = tmp_path / "OUTPUT" / "FB_ABCD1234EF_2026-08-01"
+        folder = tmp_path / "OUTPUT" / "2026-08-01_ABCD1234EF"
         assert (folder / "02_Bank_Statement_Extract.pdf").is_file()
         assert result.generated_extracts == 1
         doc = pymupdf.open(folder / "02_Bank_Statement_Extract.pdf")
@@ -119,8 +124,8 @@ class TestSinhPdfTrichXuatKhiThieuPhieuGoc:
 class TestNeedsReviewDiVaoThuMucRieng:
     def test_needs_review_nam_trong_thu_muc_needs_review(self, tmp_path):
         bill = _doc_with_file(tmp_path, DocumentType.META_INVOICE, "bill.pdf", reference_number="ABCD1234EF")
-        group = FacebookPaymentGroup(
-            group_code="FB_ABCD1234EF_2026-08-01", facebook_bill=bill, status=PaymentGroupStatus.NEEDS_REVIEW,
+        case = PaymentCase(
+            group_code="2026-08-01_ABCD1234EF", meta_bill=bill, status=PaymentGroupStatus.NEEDS_REVIEW,
         )
-        result = PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([group])
-        assert (tmp_path / "OUTPUT" / "NEEDS_REVIEW" / "FB_ABCD1234EF_2026-08-01").is_dir()
+        result = PaymentGroupOrganizer(tmp_path / "OUTPUT").organize([case])
+        assert (tmp_path / "OUTPUT" / "NEEDS_REVIEW" / "2026-08-01_ABCD1234EF").is_dir()

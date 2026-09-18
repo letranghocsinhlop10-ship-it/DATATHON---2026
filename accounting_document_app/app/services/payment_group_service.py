@@ -2,7 +2,7 @@
 
 Khác với ``MatchService``/``OrganizeService``/``ExportService`` (luồng
 dossier META/DEBIT/VAT gốc — mọi state đi qua DB), luồng payment group giữ
-``FacebookPaymentGroup`` TRONG BỘ NHỚ giữa các bước thay vì thêm bảng DB
+``PaymentCase`` TRONG BỘ NHỚ giữa các bước thay vì thêm bảng DB
 mới: ``match_run()`` trả thẳng danh sách để tầng gọi (GUI) giữ lại và
 truyền tiếp cho ``organize()``/``export()`` — ``Document`` vẫn được SCAN và
 lưu DB bình thường qua ``ScanService`` (không đổi gì ở đó).
@@ -13,13 +13,14 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from app.core.bank_mapping import BankMappingConfig
 from app.core.bank_statement_parser import BankTransaction
 from app.database.database import Database
 from app.database.document_repository import DocumentRepository
 from app.exporters.payment_group_exporter import PaymentGroupExporter
 from app.exporters.payment_group_organizer import PaymentGroupOrganizeResult, PaymentGroupOrganizer
 from app.matching.payment_group_matcher import PaymentGroupMatchResult, PaymentGroupMatcher
-from app.models.facebook_payment_group import FacebookPaymentGroup
+from app.models.payment_case import PaymentCase
 
 __all__ = ["PaymentGroupService"]
 
@@ -27,15 +28,17 @@ logger = logging.getLogger(__name__)
 
 
 class PaymentGroupService:
-    """Ghép + sắp xếp + xuất Excel cho luồng Facebook payment group.
+    """Ghép + sắp xếp + xuất Excel cho luồng payment case (bank-agnostic).
 
     Args:
         db: Kết nối database đã mở.
+        bank_mapping: Ánh xạ thẻ -> ngân hàng kỳ vọng, mặc định nạp từ
+            ``config/bank_mapping.yaml``.
     """
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, bank_mapping: BankMappingConfig | None = None) -> None:
         self._documents = DocumentRepository(db)
-        self._matcher = PaymentGroupMatcher()
+        self._matcher = PaymentGroupMatcher(bank_mapping)
 
     def match_run(
         self, run_id: int, bank_transactions: list[BankTransaction] | None = None
@@ -56,11 +59,11 @@ class PaymentGroupService:
         return result
 
     def organize(
-        self, groups: list[FacebookPaymentGroup], output_root: Path | str
+        self, groups: list[PaymentCase], output_root: Path | str
     ) -> PaymentGroupOrganizeResult:
         """Sắp xếp PDF theo từng payment group — xem ``PaymentGroupOrganizer``."""
         return PaymentGroupOrganizer(output_root).organize(groups)
 
-    def export(self, groups: list[FacebookPaymentGroup], output_path: Path | str) -> Path:
+    def export(self, groups: list[PaymentCase], output_path: Path | str) -> Path:
         """Xuất Excel một sheet — xem ``PaymentGroupExporter``."""
         return PaymentGroupExporter().export(groups, output_path)
