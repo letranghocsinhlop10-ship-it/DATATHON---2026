@@ -1,4 +1,5 @@
 import zipfile
+from pathlib import Path
 
 from app.ingest import discover_pdf_files, process_pdf_file
 from app.zip_utils import extract_zip_flat, extract_zips_in_place
@@ -74,3 +75,36 @@ def test_discover_pdf_files_finds_pdfs_extracted_from_zip(tmp_path):
     assert not doc.is_error
     assert doc.used_xml_sidecar is True
     assert "ZIPREF003" in doc.reference_candidates
+
+
+def test_nested_uppercase_zip_and_pdf_are_discovered(tmp_path):
+    input_dir = tmp_path / "messy"
+    input_dir.mkdir()
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    pdf = staging / "INVOICE.PDF"
+    make_vat_invoice(pdf, staging / "INVOICE.xml", reference_code="NESTED001")
+
+    inner_zip = staging / "INNER.ZIP"
+    with zipfile.ZipFile(inner_zip, "w") as zf:
+        zf.write(pdf, arcname="deep/random/INVOICE.PDF")
+    outer_zip = input_dir / "OUTER.ZIP"
+    with zipfile.ZipFile(outer_zip, "w") as zf:
+        zf.write(inner_zip, arcname="unhelpful/folder/INNER.ZIP")
+
+    assert extract_zips_in_place(input_dir) == 2
+    files = discover_pdf_files(input_dir)
+    assert len(files) == 1
+    assert Path(files[0][0]).name == "INVOICE.PDF"
+
+
+def test_zip_keeps_distinct_files_with_same_basename(tmp_path):
+    zip_path = tmp_path / "duplicates.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("a/document.pdf", b"first")
+        zf.writestr("b/document.pdf", b"second")
+
+    dest = tmp_path / "out"
+    extracted = extract_zip_flat(zip_path, dest)
+    assert sorted(p.name for p in extracted) == ["document.pdf", "document__2.pdf"]
+    assert extract_zip_flat(zip_path, dest) == []  # rerun stays idempotent
