@@ -98,11 +98,11 @@ def test_mixed_batch_end_to_end(tmp_path):
     assert by_ref["MISMATCHSET4"].category == "05_AMOUNT_MISMATCH"
 
     # folder layout sanity checks
-    assert (output_dir / "01_VALID" / "VALIDSET1" / "01_Facebook.pdf").exists()
-    assert (output_dir / "01_VALID" / "VALIDSET1" / "02_VAT_Invoice.pdf").exists()
-    assert (output_dir / "01_VALID" / "VALIDSET1" / "03_Bank_Debit.pdf").exists()
+    assert (output_dir / "01_VALID" / "VALIDSET1" / "VALIDSET1_01_Facebook.pdf").exists()
+    assert (output_dir / "01_VALID" / "VALIDSET1" / "VALIDSET1_02_VAT_Invoice.pdf").exists()
+    assert (output_dir / "01_VALID" / "VALIDSET1" / "VALIDSET1_03_Bank_Debit.pdf").exists()
     assert (output_dir / "06_INCOMPLETE_DOCUMENT" / "INCSET2" / "MISSING_03_Bank_Debit.txt").exists()
-    assert (output_dir / "07_DUPLICATE" / "DUPSET3" / "DUPLICATE_01_Facebook_2.pdf").exists()
+    assert (output_dir / "07_DUPLICATE" / "DUPSET3" / "DUPSET3_DUPLICATE_01_Facebook_2.pdf").exists()
     error_dirs = list((output_dir / "08_OTHER_ERROR").glob("*"))
     assert len(error_dirs) == 2
     for d in error_dirs:
@@ -111,6 +111,9 @@ def test_mixed_batch_end_to_end(tmp_path):
     # Excel outputs exist and carry every set (rows = number of DocumentSets)
     assert (output_dir / "misa_import.xlsx").exists()
     assert (output_dir / "reconciliation_report.xlsx").exists()
+    assert (output_dir / "extracted_data.xlsx").exists()
+    raw_wb = load_workbook(output_dir / "extracted_data.xlsx")
+    assert raw_wb["Extracted Data"].max_row == summary.total_files + 1
     wb = load_workbook(output_dir / "reconciliation_report.xlsx")
     all_sets_rows = list(wb["All Sets"].iter_rows(min_row=2))
     assert len(all_sets_rows) == len(document_sets)
