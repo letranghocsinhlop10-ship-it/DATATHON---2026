@@ -103,6 +103,12 @@ def export_reconciliation(job_id: str) -> FileResponse:
     return FileResponse(path, filename="reconciliation_report.xlsx")
 
 
+@router.get("/jobs/{job_id}/export/extracted")
+def export_extracted(job_id: str) -> FileResponse:
+    path = _export_path(job_manager.get_job(job_id), "extracted_data.xlsx")
+    return FileResponse(path, filename="extracted_data.xlsx")
+
+
 @router.post("/jobs/{job_id}/open-folder")
 def open_folder(job_id: str) -> dict:
     """Best-effort: try to open the output folder in the server's own file
